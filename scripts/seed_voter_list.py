@@ -1,37 +1,14 @@
-import sqlite3
-from datetime import datetime
+import sqlite3, sys
 
-DB_PATH = "../backend/voting.db"
+ROLL_NOS = sys.argv[1:]  # pass as: python seed_voter_list.py 101 102 103
 
-
-def seed_voters():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    # Replace with your actual roll numbers
-    voters = [
-        ("101",),
-        ("102",),
-        ("103",),
-        ("104",),
-        ("105",)
-    ]
-
-    for voter in voters:
-        try:
-            cursor.execute(
-                "INSERT INTO voter_list (roll_no, is_enrolled) VALUES (?, 0)",
-                voter
-            )
-        except sqlite3.IntegrityError:
-            # already exists
-            pass
-
-    conn.commit()
-    conn.close()
-
-    print("✅ Voter list seeded successfully")
-
-
-if __name__ == "__main__":
-    seed_voters()
+conn = sqlite3.connect("voting.db")
+conn.execute("""
+CREATE TABLE IF NOT EXISTS voter_list (
+    roll_no TEXT PRIMARY KEY
+)
+""")
+for r in ROLL_NOS:
+    conn.execute("INSERT OR IGNORE INTO voter_list VALUES (?)", (r,))
+conn.commit()
+print(f"Seeded {len(ROLL_NOS)} voters: {ROLL_NOS}")
