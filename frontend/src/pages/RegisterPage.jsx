@@ -8,26 +8,57 @@ export default function RegisterPage() {
   const [step, setStep] = useState(0)
 
   const handleRegister = async () => {
+    if (!rollNo) return
+    setStep(1)
+    setStatus('Contacting server...')
+
     try {
-      setStep(1)
-      setStatus('Contacting server...')
       const { data: options } = await api.post('/register/begin', { roll_no: rollNo })
+
+      options.challenge = Uint8Array.from(atob(options.challenge), c => c.charCodeAt(0))
+      options.user.id = Uint8Array.from(atob(options.user.id), c => c.charCodeAt(0))
 
       setStep(2)
       setStatus('Waiting for Touch ID...')
-      const credential = await navigator.credentials.create({ publicKey: options })
+
+      let credential
+      try {
+        credential = await navigator.credentials.create({ publicKey: options })
+      } catch (e) {
+        console.error('WebAuthn error:', e.name, e.message)
+        setStatus('error: ' + e.message)
+        setStep(0)
+        return
+      }
+
+      if (!credential) {
+        setStatus('error: no credential returned')
+        setStep(0)
+        return
+      }
 
       setStep(3)
       setStatus('Finalising registration...')
+
       const { data } = await api.post('/register/complete', {
         roll_no: rollNo,
-        credential: JSON.stringify(credential)
+        attestation: {
+          id: credential.id,
+          rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+          response: {
+            clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
+            attestationObject: btoa(String.fromCharCode(...new Uint8Array(credential.response.attestationObject))),
+          },
+          type: credential.type,
+        }
       })
 
       setVoterSecret(data.voter_secret)
       setStep(4)
       setStatus('success')
+
     } catch (err) {
+      console.error('Registration error:', err)
       setStatus('error: ' + err.message)
       setStep(0)
     }
@@ -50,7 +81,6 @@ export default function RegisterPage() {
           No biometric data ever leaves your device.
         </p>
 
-        {/* Progress steps */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 48 }}>
           {STEPS.map((s, i) => (
             <div key={i} style={{ flex: 1, position: 'relative' }}>
@@ -72,7 +102,6 @@ export default function RegisterPage() {
           ))}
         </div>
 
-        {/* Form */}
         <div style={{ background: 'white', padding: 40, borderTop: '3px solid #c8a951' }}>
           <label style={{
             display: 'block',
@@ -122,7 +151,6 @@ export default function RegisterPage() {
           </button>
         </div>
 
-        {/* Success */}
         {voterSecret && (
           <div style={{
             marginTop: 2,
