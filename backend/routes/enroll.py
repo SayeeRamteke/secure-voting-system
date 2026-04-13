@@ -54,7 +54,8 @@ async def register_begin(req: EnrollBeginReq, request: Request):
 
 @router.post("/register/complete")
 async def register_complete(req: EnrollCompleteReq, request: Request):
-    challenge = request.session.get("reg_challenge")
+    #challenge = request.session.get("reg_challenge")
+    challenge = base64.b64decode(request.session.get("reg_challenge"))
     if not challenge:
         raise HTTPException(400, "No challenge in session")
 
@@ -66,6 +67,8 @@ async def register_complete(req: EnrollCompleteReq, request: Request):
             expected_origin="http://localhost:5173",
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(400, f"WebAuthn verification failed: {e}")
 
     # generate voter_secret — shown ONCE, never stored raw

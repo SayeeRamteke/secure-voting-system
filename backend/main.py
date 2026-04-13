@@ -6,12 +6,18 @@ from routes import enroll, vote, receipt, health, admin
 
 app = FastAPI()
 
-app.add_middleware(SessionMiddleware, secret_key="demo-secret-change-in-prod")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="demo-secret-change-in-prod",
+    same_site="lax",
+    https_only=False,
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True, 
 )
 
 @app.on_event("startup")
