@@ -1,7 +1,8 @@
 import sqlite3, os
 from contextlib import contextmanager
 
-DB_PATH = os.getenv("DB_PATH", "votes.db")
+DB_PATH = os.path.join(os.path.dirname(__file__), "voting.db")
+DB_PATH = os.path.abspath(DB_PATH)
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)

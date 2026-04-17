@@ -1,7 +1,7 @@
 import sqlite3, sys, os
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-DB_PATH = os.path.join(BASE_DIR, "backend", "votes.db")
+DB_PATH = os.path.join(BASE_DIR, "backend", "voting.db")
 
 ROLL_NOS = sys.argv[1:]
 
