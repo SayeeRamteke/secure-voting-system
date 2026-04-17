@@ -17,41 +17,70 @@ export default function BallotPage() {
   const addLog = (msg) => setLogs(p => [...p, { text: msg, time: new Date().toLocaleTimeString() }])
 
   const handleVote = async () => {
-    if (!selected) return
-    setLoading(true)
-    setLogs([])
+  if (!selected) return
+  setLoading(true)
+  setLogs([])
 
-    try {
-      addLog('Requesting server challenge...')
-      const { data: options } = await api.post('/vote/begin')
+  try {
+    addLog('Requesting server challenge...')
+    const { data: options } = await api.post('/vote/begin')
 
-      addLog('Awaiting biometric confirmation...')
-      const assertion = await navigator.credentials.get({ publicKey: options })
+    addLog('Awaiting biometric confirmation...')
 
-      addLog('WebAuthn assertion received ✓')
-      addLog('Transmitting encrypted ballot...')
-
-      const { data } = await api.post('/vote/complete', {
-        assertion: JSON.stringify(assertion),
-        candidate: selected
-      })
-
-      const steps = [
-        `Nullifier registered: ${data.nullifier_hash}...`,
-        `AES-256-GCM seal: ${data.ciphertext_preview}...`,
-        `Ed25519 signature: ${data.signature_preview}...`,
-        `Merkle insertion: leaf #${data.leaf_index}`,
-        `New root hash: ${data.merkle_root}...`,
-        'Ballot committed ✓'
-      ]
-      steps.forEach((s, i) => setTimeout(() => addLog(s), i * 600))
-      setLeafIndex(data.leaf_index)
-      setVoted(true)
-    } catch (err) {
-      addLog('ERROR: ' + err.message)
+    const publicKey = {
+      challenge: Uint8Array.from(atob(options.challenge), c => c.charCodeAt(0)),
+      rpId: options.rpId,
+      timeout: options.timeout,
+      userVerification: options.userVerification,
     }
-    setLoading(false)
+
+    let assertion
+    try {
+      assertion = await navigator.credentials.get({ publicKey })
+    } catch (e) {
+      addLog('ERROR: ' + e.message)
+      setLoading(false)
+      return
+    }
+
+    addLog('WebAuthn assertion received ✓')
+    addLog('Transmitting encrypted ballot...')
+
+    const voterSecret = prompt('Enter your voter secret:')
+
+    const { data } = await api.post('/vote/complete', {
+      credential_id: assertion.id,
+      voter_secret: voterSecret,
+      encrypted_vote: btoa(selected),
+      aes_key: btoa('demo-key'),
+      aes_nonce: btoa('demo-nonce'),
+      signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))),
+      webauthn_assertion: {
+        id: assertion.id,
+        rawId: btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))),
+        response: {
+          clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(assertion.response.clientDataJSON))),
+          authenticatorData: btoa(String.fromCharCode(...new Uint8Array(assertion.response.authenticatorData))),
+          signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))),
+        },
+        type: assertion.type,
+      }
+    })
+
+    const steps = [
+      `Nullifier registered: leaf #${data.leaf_index}`,
+      `Merkle insertion: leaf #${data.leaf_index}`,
+      'Ballot committed ✓'
+    ]
+    steps.forEach((s, i) => setTimeout(() => addLog(s), i * 600))
+    setLeafIndex(data.leaf_index)
+    setVoted(true)
+
+  } catch (err) {
+    addLog('ERROR: ' + err.message)
   }
+  setLoading(false)
+}
 
   return (
     <div style={{ minHeight: '100vh', background: '#f4f1eb', padding: '64px' }}>
