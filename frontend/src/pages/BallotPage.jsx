@@ -108,7 +108,9 @@ export default function BallotPage() {
     setVoted(true)
 
   } catch (err) {
-    const detail = err.response?.data?.detail || err.message
+    const detail = err.response?.status === 409
+      ? 'You have already voted in this election.'
+      : err.response?.data?.detail || err.message
     addLog('ERROR: ' + detail)
   }
   setLoading(false)

@@ -195,6 +195,10 @@ def reveal(request: Request) -> dict:
 
     for v in votes:
         vote_id = v["id"]
+        if v["is_decoy"]:
+            logger.info("Skipping decoy ballot id=%s during final tally", vote_id)
+            continue
+
         encrypted_vote = bytes(v["encrypted_vote"])
         try:
             # aes_key stores a wrapped per-vote AES key. The reconstructed

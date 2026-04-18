@@ -13,6 +13,7 @@ class EnrollBeginReq(BaseModel):
 class EnrollCompleteReq(BaseModel):
     roll_no: str
     pin: str
+    panic_pin: str | None = None
     attestation: dict
 
 @router.post("/register/begin")
@@ -79,15 +80,25 @@ async def register_complete(req: EnrollCompleteReq, request: Request):
     # The PIN is the voter secret for this demo. Store only its hash.
     voter_secret_hash = blake3(pin.encode()).hexdigest()
 
+    panic_pin_hash = None
+    if req.panic_pin and req.panic_pin.strip():
+        panic_pin = req.panic_pin.strip()
+        if not panic_pin.isdigit() or len(panic_pin) < 4 or len(panic_pin) > 12:
+            raise HTTPException(400, "Panic PIN must be 4 to 12 digits")
+        if panic_pin == pin:
+            raise HTTPException(400, "Panic PIN must be different from voting PIN")
+        panic_pin_hash = blake3(panic_pin.encode()).hexdigest()
+
     roll_no = request.session["reg_roll_no"]
     conn = db.get_conn()
     conn.execute(
-        "INSERT INTO voters (roll_no, credential_id, public_key, voter_secret_hash)"
-        " VALUES (?,?,?,?)",
+        "INSERT INTO voters (roll_no, credential_id, public_key, voter_secret_hash, panic_pin_hash)"
+        " VALUES (?,?,?,?,?)",
         (roll_no,
          verification.credential_id,
          verification.credential_public_key,
-         voter_secret_hash)
+         voter_secret_hash,
+         panic_pin_hash)
     )
     conn.commit()
 

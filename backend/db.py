@@ -33,6 +33,7 @@ def init_db():
             credential_id     TEXT UNIQUE NOT NULL,
             public_key        BLOB NOT NULL,
             voter_secret_hash TEXT NOT NULL,
+            panic_pin_hash    TEXT,
             enrolled_at       TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS votes (
@@ -42,6 +43,8 @@ def init_db():
             aes_key        BLOB NOT NULL,
             aes_nonce      BLOB NOT NULL,
             signature      BLOB NOT NULL,
+            receipt_secret_hash TEXT,
+            is_decoy       INTEGER NOT NULL DEFAULT 0,
             merkle_leaf    TEXT NOT NULL,
             timestamp      TEXT DEFAULT (datetime('now'))
         );
@@ -56,6 +59,14 @@ def init_db():
             commitments TEXT NOT NULL
         );
         """)
+        _ensure_column(conn, "voters", "panic_pin_hash", "TEXT")
+        _ensure_column(conn, "votes", "receipt_secret_hash", "TEXT")
+        _ensure_column(conn, "votes", "is_decoy", "INTEGER NOT NULL DEFAULT 0")
+
+def _ensure_column(conn, table: str, column: str, definition: str):
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 # ── helpers ─────────────────────────────────────────
 def roll_exists(roll_no: str) -> bool:
@@ -88,12 +99,31 @@ def get_voter_by_credential(credential_id: str | bytes):
             return row
     return None
 
-def insert_vote(nullifier, encrypted_vote, aes_key, aes_nonce, signature, leaf):
+def insert_vote(
+    nullifier,
+    encrypted_vote,
+    aes_key,
+    aes_nonce,
+    signature,
+    leaf,
+    receipt_secret_hash=None,
+    is_decoy=False,
+):
     with tx() as conn:
         conn.execute(
-            "INSERT INTO votes (nullifier,encrypted_vote,aes_key,aes_nonce,signature,merkle_leaf)"
-            " VALUES (?,?,?,?,?,?)",
-            (nullifier, encrypted_vote, aes_key, aes_nonce, signature, leaf))
+            "INSERT INTO votes "
+            "(nullifier,encrypted_vote,aes_key,aes_nonce,signature,merkle_leaf,receipt_secret_hash,is_decoy)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (
+                nullifier,
+                encrypted_vote,
+                aes_key,
+                aes_nonce,
+                signature,
+                leaf,
+                receipt_secret_hash,
+                1 if is_decoy else 0,
+            ))
 
 def get_vote_by_nullifier(nullifier: str):
     conn = get_conn()

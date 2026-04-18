@@ -78,12 +78,20 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
         print(f"WebAuthn error: {e}")
         raise HTTPException(401, f"WebAuthn failed: {e}")
 
-    # 3. verify BLAKE3(PIN) == stored hash
-    if blake3(req.voter_secret.encode()).hexdigest() != voter["voter_secret_hash"]:
+    # 3. verify BLAKE3(PIN) == stored hash. Panic PIN authenticates too,
+    # but the stored ballot is marked as a decoy and excluded from reveal tally.
+    submitted_pin_hash = blake3(req.voter_secret.encode()).hexdigest()
+    is_decoy = False
+    if submitted_pin_hash == voter["voter_secret_hash"]:
+        is_decoy = False
+    elif voter["panic_pin_hash"] and submitted_pin_hash == voter["panic_pin_hash"]:
+        is_decoy = True
+    else:
         raise HTTPException(403, "PIN mismatch")
 
-    # 4. compute nullifier
-    nullifier = compute_nullifier(req.voter_secret, "election_2024")
+    # 4. compute one stable nullifier per voter/election, regardless of whether
+    # the real PIN or panic PIN was entered. This prevents voting again.
+    nullifier = compute_nullifier(voter["voter_secret_hash"], "election_2024")
     encrypted_vote = decode_client_bytes(req.encrypted_vote)
     try:
         aes_key = wrap_aes_key_for_db(decode_client_bytes(req.aes_key))
@@ -100,22 +108,14 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
             aes_key=aes_key,
             aes_nonce=aes_nonce,
             signature=signature,
-            leaf=""
+            leaf="",
+            receipt_secret_hash=submitted_pin_hash,
+            is_decoy=is_decoy,
         )
     except Exception:
         existing_vote = db.get_vote_by_nullifier(nullifier)
-        leaf_index = db.get_vote_leaf_index(nullifier)
-        if existing_vote and existing_vote["merkle_leaf"] and leaf_index is not None:
-            try:
-                current_root = ensure_current_root()
-            except detection.TamperDetected as e:
-                raise HTTPException(500, f"Tamper detected: {e}")
-            return {
-                "leaf_index": leaf_index,
-                "merkle_leaf": existing_vote["merkle_leaf"],
-                "merkle_root": current_root,
-                "already_voted": True
-            }
+        if existing_vote:
+            raise HTTPException(409, "Already voted")
         raise HTTPException(409, "Already voted")
 
     # 6. compute and store merkle leaf
@@ -137,5 +137,6 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
         "leaf_index": len(merkle_tree.leaves) - 1,
         "merkle_leaf": leaf,
         "merkle_root": new_root,
-        "already_voted": False
+        "already_voted": False,
+        "decoy": is_decoy
     }

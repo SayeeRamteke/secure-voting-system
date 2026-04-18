@@ -5,9 +5,16 @@ export default function RegisterPage() {
   const [rollNo, setRollNo] = useState('')
   const [pin, setPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
+  const [panicPin, setPanicPin] = useState('')
+  const [confirmPanicPin, setConfirmPanicPin] = useState('')
   const [registered, setRegistered] = useState(false)
   const [status, setStatus] = useState('')
   const [step, setStep] = useState(0)
+
+  const pinMismatch = confirmPin && pin !== confirmPin
+  const wantsPanicPin = panicPin || confirmPanicPin
+  const panicPinMismatch = wantsPanicPin && panicPin !== confirmPanicPin
+  const panicSameAsPin = wantsPanicPin && panicPin && panicPin === pin
 
   const handleRegister = async () => {
     if (!rollNo || !pin || !confirmPin) return
@@ -17,6 +24,18 @@ export default function RegisterPage() {
     }
     if (pin !== confirmPin) {
       setStatus('error: PINs do not match')
+      return
+    }
+    if (wantsPanicPin && !/^\d{4,12}$/.test(panicPin)) {
+      setStatus('error: panic PIN must be 4 to 12 digits')
+      return
+    }
+    if (panicPinMismatch) {
+      setStatus('error: panic PINs do not match')
+      return
+    }
+    if (panicSameAsPin) {
+      setStatus('error: panic PIN must be different from voting PIN')
       return
     }
     setStep(1)
@@ -53,6 +72,7 @@ export default function RegisterPage() {
       const { data } = await api.post('/register/complete', {
         roll_no: rollNo,
         pin,
+        panic_pin: wantsPanicPin ? panicPin : null,
         attestation: {
           id: credential.id,
           rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
@@ -201,15 +221,84 @@ export default function RegisterPage() {
               marginBottom: 32
             }}
           />
+          {pinMismatch && (
+            <div style={{ marginTop: -20, marginBottom: 24, color: '#8a1a1a', fontFamily: 'monospace', fontSize: 11 }}>
+              PINs do not match.
+            </div>
+          )}
+
+          <div style={{
+            marginTop: 8,
+            paddingTop: 24,
+            borderTop: '1px solid #eee'
+          }}>
+            <div style={{ fontSize: 11, letterSpacing: 2, color: '#667788', fontFamily: 'monospace', marginBottom: 8 }}>
+              OPTIONAL PANIC PIN
+            </div>
+            <p style={{ color: '#667788', fontSize: 12, lineHeight: 1.6, margin: '0 0 16px' }}>
+              Set this only if you want a duress PIN. It will accept the vote normally on screen,
+              but the ballot is excluded from final results.
+            </p>
+
+            <input
+              value={panicPin}
+              onChange={e => setPanicPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+              placeholder="Optional 4 to 12 digits"
+              type="password"
+              inputMode="numeric"
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                border: '1px solid #ddd',
+                borderBottom: panicPin ? '2px solid #0d1b2a' : '2px solid #ddd',
+                background: '#fafafa',
+                fontSize: 16,
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box',
+                marginBottom: 16
+              }}
+            />
+
+            <input
+              value={confirmPanicPin}
+              onChange={e => setConfirmPanicPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+              placeholder="Confirm optional panic PIN"
+              type="password"
+              inputMode="numeric"
+              style={{
+                width: '100%',
+                padding: '14px 16px',
+                border: '1px solid #ddd',
+                borderBottom: confirmPanicPin ? '2px solid #0d1b2a' : '2px solid #ddd',
+                background: '#fafafa',
+                fontSize: 16,
+                fontFamily: 'monospace',
+                outline: 'none',
+                boxSizing: 'border-box',
+                marginBottom: 32
+              }}
+            />
+            {panicPinMismatch && (
+              <div style={{ marginTop: -20, marginBottom: 24, color: '#8a1a1a', fontFamily: 'monospace', fontSize: 11 }}>
+                Panic PINs do not match.
+              </div>
+            )}
+            {panicSameAsPin && (
+              <div style={{ marginTop: -20, marginBottom: 24, color: '#8a1a1a', fontFamily: 'monospace', fontSize: 11 }}>
+                Panic PIN must be different from your voting PIN.
+              </div>
+            )}
+          </div>
 
           <button
             onClick={handleRegister}
-            disabled={!rollNo || !pin || !confirmPin || step > 0}
+            disabled={!rollNo || !pin || !confirmPin || pinMismatch || panicPinMismatch || panicSameAsPin || step > 0}
             style={{
               width: '100%',
               padding: '16px',
-              background: !rollNo || !pin || !confirmPin || step > 0 ? '#ddd' : '#0d1b2a',
-              color: !rollNo || !pin || !confirmPin || step > 0 ? '#aaa' : 'white',
+              background: !rollNo || !pin || !confirmPin || pinMismatch || panicPinMismatch || panicSameAsPin || step > 0 ? '#ddd' : '#0d1b2a',
+              color: !rollNo || !pin || !confirmPin || pinMismatch || panicPinMismatch || panicSameAsPin || step > 0 ? '#aaa' : 'white',
               border: 'none',
               fontSize: 13,
               letterSpacing: 2,

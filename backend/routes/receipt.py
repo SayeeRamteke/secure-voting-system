@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from crypto.crypto_core import compute_nullifier, hash_leaf
 from crypto.merkle import MerkleTree
+from blake3 import blake3
 import db
 
 router = APIRouter()
@@ -40,9 +41,16 @@ def verify_receipt(req: ReceiptVerifyReq):
     if not vote:
         raise HTTPException(404, "Leaf not found")
 
-    nullifier = compute_nullifier(req.voter_secret, "election_2024")
-    if vote["nullifier"] != nullifier:
-        return {"verified": False, "proof_path": []}
+    submitted_secret_hash = blake3(req.voter_secret.encode()).hexdigest()
+    if vote["receipt_secret_hash"]:
+        stable_nullifier = compute_nullifier(submitted_secret_hash, "election_2024")
+        if vote["receipt_secret_hash"] != submitted_secret_hash and vote["nullifier"] != stable_nullifier:
+            return {"verified": False, "proof_path": []}
+    else:
+        # Legacy rows from before PIN receipts stored the raw-secret nullifier.
+        nullifier = compute_nullifier(req.voter_secret, "election_2024")
+        if vote["nullifier"] != nullifier:
+            return {"verified": False, "proof_path": []}
 
     expected_leaf = hash_leaf(
         vote["nullifier"],
