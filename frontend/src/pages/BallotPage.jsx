@@ -7,6 +7,9 @@ const CANDIDATES = [
   { name: 'Anita Desai', party: 'Independent Candidate', code: 'IND', color: '#2a6a3a' },
 ]
 
+const bytesToBase64 = (bytes) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+
 export default function BallotPage() {
   const [selected, setSelected] = useState('')
   const [logs, setLogs] = useState([])
@@ -47,21 +50,39 @@ export default function BallotPage() {
     addLog('Transmitting encrypted ballot...')
 
     const voterSecret = prompt('Enter your voter secret:')
+    if (!voterSecret) {
+      addLog('ERROR: voter secret is required')
+      setLoading(false)
+      return
+    }
+
+    const voteKey = await crypto.subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      true,
+      ['encrypt']
+    )
+    const aesNonce = crypto.getRandomValues(new Uint8Array(12))
+    const encryptedVote = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: aesNonce },
+      voteKey,
+      new TextEncoder().encode(selected)
+    )
+    const rawVoteKey = await crypto.subtle.exportKey('raw', voteKey)
 
     const { data } = await api.post('/vote/complete', {
       credential_id: assertion.id,
       voter_secret: voterSecret,
-      encrypted_vote: btoa(selected),
-      aes_key: btoa('demo-key'),
-      aes_nonce: btoa('demo-nonce'),
-      signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))),
+      encrypted_vote: bytesToBase64(encryptedVote),
+      aes_key: bytesToBase64(rawVoteKey),
+      aes_nonce: bytesToBase64(aesNonce),
+      signature: bytesToBase64(assertion.response.signature),
       webauthn_assertion: {
         id: assertion.id,
-        rawId: btoa(String.fromCharCode(...new Uint8Array(assertion.rawId))),
+        rawId: bytesToBase64(assertion.rawId),
         response: {
-          clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(assertion.response.clientDataJSON))),
-          authenticatorData: btoa(String.fromCharCode(...new Uint8Array(assertion.response.authenticatorData))),
-          signature: btoa(String.fromCharCode(...new Uint8Array(assertion.response.signature))),
+          clientDataJSON: bytesToBase64(assertion.response.clientDataJSON),
+          authenticatorData: bytesToBase64(assertion.response.authenticatorData),
+          signature: bytesToBase64(assertion.response.signature),
         },
         type: assertion.type,
       }

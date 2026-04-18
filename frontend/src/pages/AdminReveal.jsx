@@ -2,8 +2,10 @@ import { useState } from 'react'
 import api from '../api'
 
 export default function AdminReveal() {
+  const [adminToken, setAdminToken] = useState('')
   const [shards, setShards] = useState(['', '', ''])
   const [results, setResults] = useState(null)
+  const [errors, setErrors] = useState([])
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -11,15 +13,70 @@ export default function AdminReveal() {
     const s = [...shards]; s[i] = v; setShards(s)
   }
 
+  const normalizeShard = (shard) => shard.replace(/\s+/g, '')
+  const isShard = (shard) => /^[1-9]\d*-[0-9a-fA-F]+$/.test(shard)
+
   const handleReveal = async () => {
     setLoading(true)
     setStatus('Combining cryptographic shards...')
+    setResults(null)
+    setErrors([])
     try {
-      const { data } = await api.post('/admin/reveal', { shards })
+      const selectedShards = shards
+        .map((shard, index) => ({ shard: normalizeShard(shard), trustee_id: `trustee_${index + 1}` }))
+        .filter(item => item.shard)
+
+      if (!adminToken.trim()) {
+        setStatus('Error: admin token is required.')
+        setLoading(false)
+        return
+      }
+
+      if (selectedShards.length < 2) {
+        setStatus('Error: provide at least 2 shards.')
+        setLoading(false)
+        return
+      }
+
+      const invalidShard = selectedShards.find(item => !isShard(item.shard))
+      if (invalidShard) {
+        setStatus("Error: shard format must be like '1-abcdef...' with no labels.")
+        setLoading(false)
+        return
+      }
+
+      const duplicateIndexes = new Set()
+      const shardIndexes = selectedShards.map(item => item.shard.split('-')[0])
+      const duplicateIndex = shardIndexes.find(index => {
+        if (duplicateIndexes.has(index)) return true
+        duplicateIndexes.add(index)
+        return false
+      })
+      if (duplicateIndex) {
+        setStatus(`Error: shard ${duplicateIndex} was entered more than once.`)
+        setLoading(false)
+        return
+      }
+
+      const config = {
+        headers: {
+          Authorization: `Bearer ${adminToken.trim()}`
+        }
+      }
+
+      await api.delete('/admin/shards', config)
+
+      for (const item of selectedShards.slice(0, 2)) {
+        await api.post('/admin/shard', item, config)
+      }
+
+      const { data } = await api.post('/admin/reveal', {}, config)
       setResults(data.results)
-      setStatus('Results decrypted successfully.')
+      setErrors(data.errors || [])
+      setStatus(data.error_count ? 'Results revealed with ballot errors.' : 'Results decrypted successfully.')
     } catch (err) {
-      setStatus('Error: ' + err.message)
+      const detail = err.response?.data?.detail || err.response?.data?.errors?.join(', ') || err.message
+      setStatus('Error: ' + detail)
     }
     setLoading(false)
   }
@@ -42,6 +99,28 @@ export default function AdminReveal() {
         </p>
 
         <div style={{ background: 'white', padding: 40, borderTop: '3px solid #8a1a1a' }}>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{
+              display: 'block', fontSize: 11, letterSpacing: 2,
+              color: '#667788', fontFamily: 'monospace', marginBottom: 8
+            }}>
+              ADMIN TOKEN
+            </label>
+            <input
+              value={adminToken}
+              onChange={e => setAdminToken(e.target.value)}
+              placeholder="Bearer token configured on the backend"
+              type="password"
+              style={{
+                width: '100%', padding: '12px 14px',
+                border: '1px solid #ddd', borderBottom: adminToken ? '2px solid #0d1b2a' : '2px solid #ddd',
+                background: '#fafafa', fontFamily: 'monospace',
+                fontSize: 12, outline: 'none',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
           {shards.map((shard, i) => (
             <div key={i} style={{ marginBottom: 24 }}>
               <label style={{
@@ -121,6 +200,13 @@ export default function AdminReveal() {
             }}>
               TOTAL VOTES CAST: {total} · INTEGRITY: MERKLE VERIFIED
             </div>
+            {errors.length > 0 && (
+              <div style={{ marginTop: 20, fontFamily: 'monospace', fontSize: 11, color: '#cc4444' }}>
+                {errors.map((error, i) => (
+                  <div key={i}>{error}</div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

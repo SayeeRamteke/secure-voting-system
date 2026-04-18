@@ -41,3 +41,7 @@ frontend/dist/
 
 # (optional: keep settings.json if you want)
 # !.vscode/settings.json
+shard_1.txt 
+shard_2.txt 
+shard_3.txt 
+election_key.txt 

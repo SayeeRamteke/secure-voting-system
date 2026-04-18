@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from blake3 import blake3
 from datetime import datetime
+import base64
 import db, detection
 from crypto.crypto_core import compute_nullifier, hash_leaf
 from crypto.merkle import MerkleTree
@@ -24,6 +25,12 @@ def ensure_current_root():
     root = tree.get_root()
     db.insert_root(root, len(votes))
     return root
+
+def decode_client_bytes(value: bytes) -> bytes:
+    try:
+        return base64.b64decode(value, validate=True)
+    except Exception:
+        return value
 
 class VoteCompleteReq(BaseModel):
     credential_id: str
@@ -76,15 +83,19 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
 
     # 4. compute nullifier
     nullifier = compute_nullifier(req.voter_secret, "election_2024")
+    encrypted_vote = decode_client_bytes(req.encrypted_vote)
+    aes_key = decode_client_bytes(req.aes_key)
+    aes_nonce = decode_client_bytes(req.aes_nonce)
+    signature = decode_client_bytes(req.signature)
 
     # 5. atomic insert — UNIQUE(nullifier) rejects double vote
     try:
         db.insert_vote(
             nullifier=nullifier,
-            encrypted_vote=req.encrypted_vote,
-            aes_key=req.aes_key,
-            aes_nonce=req.aes_nonce,
-            signature=req.signature,
+            encrypted_vote=encrypted_vote,
+            aes_key=aes_key,
+            aes_nonce=aes_nonce,
+            signature=signature,
             leaf=""
         )
     except Exception:
@@ -105,7 +116,7 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
 
     # 6. compute and store merkle leaf
     ts = datetime.utcnow().isoformat()
-    leaf = hash_leaf(nullifier, req.encrypted_vote, ts)
+    leaf = hash_leaf(nullifier, encrypted_vote, ts)
     merkle_tree.insert(leaf)
 
     db.update_vote_leaf_timestamp(nullifier, leaf, ts)
