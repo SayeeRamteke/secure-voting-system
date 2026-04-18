@@ -78,9 +78,9 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
         print(f"WebAuthn error: {e}")
         raise HTTPException(401, f"WebAuthn failed: {e}")
 
-    # 3. verify BLAKE3(voter_secret) == stored hash
+    # 3. verify BLAKE3(PIN) == stored hash
     if blake3(req.voter_secret.encode()).hexdigest() != voter["voter_secret_hash"]:
-        raise HTTPException(403, "voter_secret mismatch")
+        raise HTTPException(403, "PIN mismatch")
 
     # 4. compute nullifier
     nullifier = compute_nullifier(req.voter_secret, "election_2024")

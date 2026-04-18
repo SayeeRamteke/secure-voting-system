@@ -3,7 +3,7 @@ import api from '../api'
 
 export default function ReceiptPage() {
   const [leafIndex, setLeafIndex] = useState('')
-  const [voterSecret, setVoterSecret] = useState('')
+  const [voterPin, setVoterPin] = useState('')
   const [proofPath, setProofPath] = useState([])
   const [receipt, setReceipt] = useState(null)
   const [verified, setVerified] = useState(null)
@@ -18,7 +18,7 @@ export default function ReceiptPage() {
       const parsedLeafIndex = parseInt(leafIndex)
       const { data } = await api.post('/receipt/verify', {
         leaf_index: parsedLeafIndex,
-        voter_secret: voterSecret
+        voter_secret: voterPin
       })
       setProofPath(data.proof_path)
       setReceipt(data)
@@ -64,12 +64,14 @@ export default function ReceiptPage() {
           />
 
           <label style={{ display: 'block', fontSize: 11, letterSpacing: 2, color: '#667788', fontFamily: 'monospace', marginBottom: 8 }}>
-            VOTER SECRET
+            VOTING PIN
           </label>
           <input
-            value={voterSecret}
-            onChange={e => setVoterSecret(e.target.value)}
-            placeholder="Paste your secret here"
+            value={voterPin}
+            onChange={e => setVoterPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            placeholder="Enter your PIN"
+            type="password"
+            inputMode="numeric"
             style={{
               width: '100%', padding: '12px 14px',
               border: '1px solid #ddd', borderBottom: '2px solid #0d1b2a',
@@ -81,7 +83,7 @@ export default function ReceiptPage() {
 
           <button
             onClick={handleVerify}
-            disabled={!leafIndex || !voterSecret || loading}
+            disabled={!leafIndex || !voterPin || loading}
             style={{
               width: '100%', padding: '16px',
               background: '#0d1b2a', color: 'white',
@@ -115,7 +117,7 @@ export default function ReceiptPage() {
             <div style={{ color: verified ? '#667788' : '#cc8888', fontSize: 14, lineHeight: 1.6 }}>
               {verified
                 ? `Checked against the published root for ${receipt?.total_votes || 0} vote${receipt?.total_votes === 1 ? '' : 's'}.`
-                : receipt?.reason || 'The leaf, secret, or proof did not match the official root.'}
+                : receipt?.reason || 'The Ballot ID, PIN, or proof did not match the official root.'}
             </div>
 
             {verified && (

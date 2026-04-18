@@ -51,9 +51,9 @@ export default function BallotPage() {
     addLog('WebAuthn assertion received ✓')
     addLog('Transmitting encrypted ballot...')
 
-    const voterSecret = prompt('Enter your voter secret:')
-    if (!voterSecret) {
-      addLog('ERROR: voter secret is required')
+    const voterPin = prompt('Enter your voting PIN:')
+    if (!voterPin) {
+      addLog('ERROR: voting PIN is required')
       setLoading(false)
       return
     }
@@ -73,7 +73,7 @@ export default function BallotPage() {
 
     const { data } = await api.post('/vote/complete', {
       credential_id: assertion.id,
-      voter_secret: voterSecret,
+      voter_secret: voterPin,
       encrypted_vote: bytesToBase64(encryptedVote),
       aes_key: bytesToBase64(rawVoteKey),
       aes_nonce: bytesToBase64(aesNonce),
@@ -214,7 +214,7 @@ export default function BallotPage() {
                 Status: <span style={{ color: '#c8a951', fontFamily: 'monospace' }}>INCLUDED IN OFFICIAL TALLY</span>
               </div>
               <p style={{ color: '#445566', fontSize: 13, marginTop: 16, lineHeight: 1.6 }}>
-                Save Ballot ID #{leafIndex + 1} and your voter secret. Use them on the Receipt page
+                Save Ballot ID #{leafIndex + 1}. Use it with your PIN on the Receipt page
                 to verify your vote against the public election board.
               </p>
               <details style={{ marginTop: 18, color: '#667788', fontSize: 12 }}>

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from webauthn import (generate_registration_options,
                       verify_registration_response)
 from blake3 import blake3
-import os, db
+import db
 import base64
 router = APIRouter()
 
@@ -12,6 +12,7 @@ class EnrollBeginReq(BaseModel):
 
 class EnrollCompleteReq(BaseModel):
     roll_no: str
+    pin: str
     attestation: dict
 
 @router.post("/register/begin")
@@ -71,9 +72,12 @@ async def register_complete(req: EnrollCompleteReq, request: Request):
         traceback.print_exc()
         raise HTTPException(400, f"WebAuthn verification failed: {e}")
 
-    # generate voter_secret — shown ONCE, never stored raw
-    voter_secret      = os.urandom(32).hex()
-    voter_secret_hash = blake3(voter_secret.encode()).hexdigest()
+    pin = req.pin.strip()
+    if not pin.isdigit() or len(pin) < 4 or len(pin) > 12:
+        raise HTTPException(400, "PIN must be 4 to 12 digits")
+
+    # The PIN is the voter secret for this demo. Store only its hash.
+    voter_secret_hash = blake3(pin.encode()).hexdigest()
 
     roll_no = request.session["reg_roll_no"]
     conn = db.get_conn()
@@ -87,5 +91,4 @@ async def register_complete(req: EnrollCompleteReq, request: Request):
     )
     conn.commit()
 
-    # return raw secret ONCE — client must save it
-    return {"voter_secret": voter_secret}
+    return {"message": "PIN registered"}

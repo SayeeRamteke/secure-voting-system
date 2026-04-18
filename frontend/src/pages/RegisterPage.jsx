@@ -3,12 +3,22 @@ import api from '../api'
 
 export default function RegisterPage() {
   const [rollNo, setRollNo] = useState('')
-  const [voterSecret, setVoterSecret] = useState('')
+  const [pin, setPin] = useState('')
+  const [confirmPin, setConfirmPin] = useState('')
+  const [registered, setRegistered] = useState(false)
   const [status, setStatus] = useState('')
   const [step, setStep] = useState(0)
 
   const handleRegister = async () => {
-    if (!rollNo) return
+    if (!rollNo || !pin || !confirmPin) return
+    if (!/^\d{4,12}$/.test(pin)) {
+      setStatus('error: PIN must be 4 to 12 digits')
+      return
+    }
+    if (pin !== confirmPin) {
+      setStatus('error: PINs do not match')
+      return
+    }
     setStep(1)
     setStatus('Contacting server...')
 
@@ -42,6 +52,7 @@ export default function RegisterPage() {
 
       const { data } = await api.post('/register/complete', {
         roll_no: rollNo,
+        pin,
         attestation: {
           id: credential.id,
           rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
@@ -53,9 +64,9 @@ export default function RegisterPage() {
         }
       })
 
-      setVoterSecret(data.voter_secret)
+      setRegistered(true)
       setStep(4)
-      setStatus('success')
+      setStatus(data.message || 'success')
 
     } catch (err) {
       console.error('Registration error:', err)
@@ -64,7 +75,7 @@ export default function RegisterPage() {
     }
   }
 
-  const STEPS = ['Submit Roll No.', 'Server Challenge', 'Touch ID Scan', 'Confirmed']
+  const STEPS = ['Roll No. + PIN', 'Server Challenge', 'Touch ID Scan', 'Confirmed']
 
   return (
     <div style={{ minHeight: '100vh', background: '#f4f1eb', padding: '64px' }}>
@@ -131,14 +142,74 @@ export default function RegisterPage() {
             }}
           />
 
+          <label style={{
+            display: 'block',
+            fontSize: 11,
+            letterSpacing: 2,
+            color: '#667788',
+            fontFamily: 'monospace',
+            marginBottom: 8
+          }}>
+            CREATE VOTING PIN
+          </label>
+          <input
+            value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            placeholder="4 to 12 digits"
+            type="password"
+            inputMode="numeric"
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              border: '1px solid #ddd',
+              borderBottom: '2px solid #0d1b2a',
+              background: '#fafafa',
+              fontSize: 16,
+              fontFamily: 'monospace',
+              outline: 'none',
+              boxSizing: 'border-box',
+              marginBottom: 24
+            }}
+          />
+
+          <label style={{
+            display: 'block',
+            fontSize: 11,
+            letterSpacing: 2,
+            color: '#667788',
+            fontFamily: 'monospace',
+            marginBottom: 8
+          }}>
+            CONFIRM PIN
+          </label>
+          <input
+            value={confirmPin}
+            onChange={e => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            placeholder="Re-enter your PIN"
+            type="password"
+            inputMode="numeric"
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              border: '1px solid #ddd',
+              borderBottom: '2px solid #0d1b2a',
+              background: '#fafafa',
+              fontSize: 16,
+              fontFamily: 'monospace',
+              outline: 'none',
+              boxSizing: 'border-box',
+              marginBottom: 32
+            }}
+          />
+
           <button
             onClick={handleRegister}
-            disabled={!rollNo || step > 0}
+            disabled={!rollNo || !pin || !confirmPin || step > 0}
             style={{
               width: '100%',
               padding: '16px',
-              background: !rollNo || step > 0 ? '#ddd' : '#0d1b2a',
-              color: !rollNo || step > 0 ? '#aaa' : 'white',
+              background: !rollNo || !pin || !confirmPin || step > 0 ? '#ddd' : '#0d1b2a',
+              color: !rollNo || !pin || !confirmPin || step > 0 ? '#aaa' : 'white',
               border: 'none',
               fontSize: 13,
               letterSpacing: 2,
@@ -151,7 +222,7 @@ export default function RegisterPage() {
           </button>
         </div>
 
-        {voterSecret && (
+        {registered && (
           <div style={{
             marginTop: 2,
             background: '#0d1b2a',
@@ -159,22 +230,14 @@ export default function RegisterPage() {
             borderLeft: '3px solid #c8a951'
           }}>
             <div style={{ color: '#c8a951', fontSize: 11, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 12 }}>
-              ✓ REGISTRATION COMPLETE — SAVE THIS SECRET
+              ✓ REGISTRATION COMPLETE
             </div>
-            <div style={{
-              fontFamily: 'monospace',
-              fontSize: 13,
-              color: '#8fc8b0',
-              wordBreak: 'break-all',
-              lineHeight: 1.8,
-              background: '#0a1520',
-              padding: 16
-            }}>
-              {voterSecret}
+            <div style={{ color: 'white', fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
+              Your PIN is active.
             </div>
             <p style={{ color: '#667788', fontSize: 12, marginTop: 16, lineHeight: 1.6 }}>
-              This secret is needed to verify your vote on the Receipt page.
-              Store it somewhere safe — it cannot be recovered.
+              Use this PIN with Touch ID when casting your vote. You will also use it with
+              your Ballot ID to verify your receipt later. The server stores only a hash.
             </p>
           </div>
         )}
