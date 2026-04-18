@@ -1,3 +1,4 @@
+import base64
 import sqlite3, os
 from contextlib import contextmanager
 
@@ -58,10 +59,30 @@ def roll_exists(roll_no: str) -> bool:
         return bool(c.execute(
             "SELECT 1 FROM voter_list WHERE roll_no=?", (roll_no,)).fetchone())
 
-def get_voter_by_credential(credential_id: str):
+def _decode_base64url(value: str) -> bytes | None:
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode(padded.encode())
+    except Exception:
+        return None
+
+def get_voter_by_credential(credential_id: str | bytes):
+    candidates = []
+    if isinstance(credential_id, bytes):
+        candidates.append(credential_id)
+    else:
+        candidates.append(credential_id)
+        decoded = _decode_base64url(credential_id)
+        if decoded:
+            candidates.append(decoded)
+
     conn = get_conn()
-    return conn.execute(
-        "SELECT * FROM voters WHERE credential_id=?", (credential_id,)).fetchone()
+    for candidate in candidates:
+        row = conn.execute(
+            "SELECT * FROM voters WHERE credential_id=?", (candidate,)).fetchone()
+        if row:
+            return row
+    return None
 
 def insert_vote(nullifier, encrypted_vote, aes_key, aes_nonce, signature, leaf):
     with tx() as conn:
@@ -69,6 +90,24 @@ def insert_vote(nullifier, encrypted_vote, aes_key, aes_nonce, signature, leaf):
             "INSERT INTO votes (nullifier,encrypted_vote,aes_key,aes_nonce,signature,merkle_leaf)"
             " VALUES (?,?,?,?,?,?)",
             (nullifier, encrypted_vote, aes_key, aes_nonce, signature, leaf))
+
+def get_vote_by_nullifier(nullifier: str):
+    conn = get_conn()
+    return conn.execute(
+        "SELECT * FROM votes WHERE nullifier=?", (nullifier,)).fetchone()
+
+def get_vote_leaf_index(nullifier: str) -> int | None:
+    conn = get_conn()
+    rows = conn.execute("SELECT nullifier FROM votes ORDER BY id").fetchall()
+    for index, row in enumerate(rows):
+        if row["nullifier"] == nullifier:
+            return index
+    return None
+
+def get_vote_by_leaf_index(leaf_index: int):
+    conn = get_conn()
+    return conn.execute(
+        "SELECT * FROM votes ORDER BY id LIMIT 1 OFFSET ?", (leaf_index,)).fetchone()
 
 def get_all_votes():
     conn = get_conn()
@@ -80,11 +119,23 @@ def get_latest_root() -> str | None:
         "SELECT root_hash FROM merkle_roots ORDER BY seq DESC LIMIT 1").fetchone()
     return row["root_hash"] if row else None
 
+def get_latest_root_record():
+    conn = get_conn()
+    return conn.execute(
+        "SELECT root_hash, vote_count FROM merkle_roots ORDER BY seq DESC LIMIT 1"
+    ).fetchone()
+
 def insert_root(root_hash: str, vote_count: int):
     with tx() as conn:
         conn.execute(
             "INSERT INTO merkle_roots (root_hash, vote_count) VALUES (?,?)",
             (root_hash, vote_count))
+
+def update_vote_leaf_timestamp(nullifier: str, leaf: str, timestamp: str):
+    with tx() as conn:
+        conn.execute(
+            "UPDATE votes SET merkle_leaf=?, timestamp=? WHERE nullifier=?",
+            (leaf, timestamp, nullifier))
 
 def vote_count() -> int:
     conn = get_conn()

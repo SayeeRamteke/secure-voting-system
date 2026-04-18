@@ -20,6 +20,12 @@ app.add_middleware(
     allow_credentials=True, 
 )
 
+app.include_router(enroll.router)
+app.include_router(vote.router)
+app.include_router(receipt.router)
+app.include_router(health.router)
+app.include_router(admin.router)
+
 @app.on_event("startup")
 def startup():
     db.init_db()
@@ -28,11 +34,6 @@ def startup():
     for v in db.get_all_votes():
         merkle_tree.insert(v["merkle_leaf"])
 
-app.include_router(enroll.router)
-app.include_router(vote.router)
-app.include_router(receipt.router)
-app.include_router(health.router)
-app.include_router(admin.router)
 
 # run: uvicorn main:app --reload --port 8000
 

@@ -3,13 +3,27 @@ from pydantic import BaseModel
 from blake3 import blake3
 from datetime import datetime
 import db, detection
-from crypto.crypto_core import (
-    verify_signature, compute_nullifier, hash_leaf, seal_vote
-)
+from crypto.crypto_core import compute_nullifier, hash_leaf
 from crypto.merkle import MerkleTree
 
 router = APIRouter()
 merkle_tree = MerkleTree()   # in-memory; rebuilt from DB on startup (see main.py)
+
+def ensure_current_root():
+    votes = db.get_all_votes()
+    latest_root = db.get_latest_root_record()
+    if latest_root and latest_root["vote_count"] == len(votes):
+        return latest_root["root_hash"]
+
+    tree = MerkleTree()
+    for vote in votes:
+        if not vote["merkle_leaf"]:
+            raise detection.TamperDetected(f"Missing Merkle leaf on vote id={vote['id']}")
+        tree.insert(vote["merkle_leaf"])
+
+    root = tree.get_root()
+    db.insert_root(root, len(votes))
+    return root
 
 class VoteCompleteReq(BaseModel):
     credential_id: str
@@ -74,6 +88,19 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
             leaf=""
         )
     except Exception:
+        existing_vote = db.get_vote_by_nullifier(nullifier)
+        leaf_index = db.get_vote_leaf_index(nullifier)
+        if existing_vote and existing_vote["merkle_leaf"] and leaf_index is not None:
+            try:
+                current_root = ensure_current_root()
+            except detection.TamperDetected as e:
+                raise HTTPException(500, f"Tamper detected: {e}")
+            return {
+                "leaf_index": leaf_index,
+                "merkle_leaf": existing_vote["merkle_leaf"],
+                "merkle_root": current_root,
+                "already_voted": True
+            }
         raise HTTPException(409, "Already voted")
 
     # 6. compute and store merkle leaf
@@ -81,15 +108,19 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
     leaf = hash_leaf(nullifier, req.encrypted_vote, ts)
     merkle_tree.insert(leaf)
 
-    import sqlite3
-    conn = sqlite3.connect("voting.db")
-    conn.execute("UPDATE votes SET merkle_leaf=?, timestamp=? WHERE nullifier=?",
-                 (leaf, ts, nullifier))
-    conn.commit()
+    db.update_vote_leaf_timestamp(nullifier, leaf, ts)
 
     # 7. run detection + store new root
-    detection.verify_chain()
-    new_root = merkle_tree.get_root()
-    db.insert_root(new_root, db.vote_count())
+    try:
+        detection.verify_chain()
+    except detection.TamperDetected as e:
+        raise HTTPException(500, f"Tamper detected: {e}")
 
-    return {"leaf_index": len(merkle_tree.leaves) - 1}
+    new_root = ensure_current_root()
+
+    return {
+        "leaf_index": len(merkle_tree.leaves) - 1,
+        "merkle_leaf": leaf,
+        "merkle_root": new_root,
+        "already_voted": False
+    }

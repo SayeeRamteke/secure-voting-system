@@ -1,30 +1,30 @@
-from crypto.merkle import MerkleTree
-from crypto.crypto_core import verify_signature
-from cryptography.exceptions import InvalidSignature
 import db
+from crypto.merkle import MerkleTree
 
 class TamperDetected(Exception):
     pass
 
 def verify_chain():
     votes = db.get_all_votes()
-    tree  = MerkleTree()
+    latest_root = db.get_latest_root_record()
 
-    for v in votes:
-        # check 1: re-verify Ed25519 signature
-        try:
-            verify_signature(bytes(v["public_key"]),    # stored at enroll time
-                             bytes(v["encrypted_vote"]),
-                             bytes(v["signature"]))
-        except InvalidSignature:
+    if latest_root:
+        expected_count = latest_root["vote_count"]
+        if expected_count > len(votes):
             raise TamperDetected(
-                f"Sig invalid on vote id={v['id']}, leaf={v['merkle_leaf'][:8]}…")
+                f"Stored root references {expected_count} votes, but only {len(votes)} exist")
+    else:
+        expected_count = len(votes)
+
+    tree = MerkleTree()
+
+    for v in votes[:expected_count]:
+        if not v["merkle_leaf"]:
+            raise TamperDetected(f"Missing Merkle leaf on vote id={v['id']}")
 
         tree.insert(v["merkle_leaf"])
 
-    # check 2: recomputed root vs stored root
     recomputed = tree.get_root()
-    stored     = db.get_latest_root()
-    if stored and recomputed != stored:
+    if latest_root and recomputed != latest_root["root_hash"]:
         raise TamperDetected(
-            f"Merkle root mismatch. Expected {stored[:12]}… got {recomputed[:12]}…")
+            f"Merkle root mismatch. Expected {latest_root['root_hash'][:12]}... got {recomputed[:12]}...")

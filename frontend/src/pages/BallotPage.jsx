@@ -77,7 +77,8 @@ export default function BallotPage() {
     setVoted(true)
 
   } catch (err) {
-    addLog('ERROR: ' + err.message)
+    const detail = err.response?.data?.detail || err.message
+    addLog('ERROR: ' + detail)
   }
   setLoading(false)
 }
