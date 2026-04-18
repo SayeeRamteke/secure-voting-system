@@ -93,8 +93,10 @@ def normalize_shard(shard: str) -> str:
 
 def load_commitments() -> list[str]:
     try:
-        payload = json.loads(find_key_file("election_commitments.json").read_text())
-        commitments = payload["commitments"]
+        commitments = db.get_election_commitments()
+        if commitments is None:
+            payload = json.loads(find_key_file("election_commitments.json").read_text())
+            commitments = payload["commitments"]
     except Exception as e:
         raise HTTPException(500, f"Election VSS commitments not available: {e}")
 

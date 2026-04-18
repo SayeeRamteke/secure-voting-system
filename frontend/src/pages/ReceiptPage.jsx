@@ -5,22 +5,29 @@ export default function ReceiptPage() {
   const [leafIndex, setLeafIndex] = useState('')
   const [voterSecret, setVoterSecret] = useState('')
   const [proofPath, setProofPath] = useState([])
+  const [receipt, setReceipt] = useState(null)
   const [verified, setVerified] = useState(null)
   const [loading, setLoading] = useState(false)
 
   const handleVerify = async () => {
     setLoading(true)
     setProofPath([])
+    setReceipt(null)
     setVerified(null)
     try {
+      const parsedLeafIndex = parseInt(leafIndex)
       const { data } = await api.post('/receipt/verify', {
-        leaf_index: parseInt(leafIndex),
+        leaf_index: parsedLeafIndex,
         voter_secret: voterSecret
       })
       setProofPath(data.proof_path)
+      setReceipt(data)
       setVerified(data.verified)
     } catch (err) {
       setVerified(false)
+      setReceipt({
+        reason: err.response?.data?.detail || err.message
+      })
     }
     setLoading(false)
   }
@@ -35,8 +42,8 @@ export default function ReceiptPage() {
           Verify your ballot
         </h2>
         <p style={{ color: '#667788', fontSize: 15, lineHeight: 1.6, margin: '0 0 48px' }}>
-          Enter your receipt details to walk the Merkle proof path and
-          confirm your vote is intact in the final tally.
+          Enter your receipt details to confirm your ballot is included in the
+          public election board.
         </p>
 
         <div style={{ background: 'white', padding: 40, borderTop: '3px solid #0d1b2a' }}>
@@ -46,7 +53,7 @@ export default function ReceiptPage() {
           <input
             value={leafIndex}
             onChange={e => setLeafIndex(e.target.value)}
-            placeholder="e.g. 47"
+            placeholder="e.g. 0"
             style={{
               width: '100%', padding: '12px 14px',
               border: '1px solid #ddd', borderBottom: '2px solid #0d1b2a',
@@ -96,26 +103,63 @@ export default function ReceiptPage() {
           }}>
             <div style={{
               color: verified ? '#c8a951' : '#cc4444',
-              fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, marginBottom: 20
+              fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, marginBottom: 14
             }}>
-              {verified ? '✓ BALLOT VERIFIED — INTEGRITY CONFIRMED' : '✗ VERIFICATION FAILED — POSSIBLE TAMPERING'}
+              {verified ? 'BALLOT VERIFIED' : 'VERIFICATION FAILED'}
             </div>
 
-            {proofPath.map((step, i) => (
-              <div key={i} style={{
-                display: 'flex', gap: 16, marginBottom: 12,
-                paddingBottom: 12, borderBottom: '1px solid #1e3248',
-                alignItems: 'flex-start'
-              }}>
-                <div style={{ color: '#c8a951', fontFamily: 'monospace', fontSize: 11, flexShrink: 0, marginTop: 2 }}>
-                  L{i + 1}
-                </div>
-                <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#5a8fa8', wordBreak: 'break-all' }}>
-                  {step.hash}
-                </div>
-                <div style={{ color: '#c8a951', flexShrink: 0 }}>✓</div>
+            <div style={{ color: 'white', fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
+              {verified ? `Ballot #${receipt?.ballot_id || parseInt(leafIndex) + 1} is in the official tally.` : 'This receipt did not match the public board.'}
+            </div>
+
+            <div style={{ color: verified ? '#667788' : '#cc8888', fontSize: 14, lineHeight: 1.6 }}>
+              {verified
+                ? `Checked against the published root for ${receipt?.total_votes || 0} vote${receipt?.total_votes === 1 ? '' : 's'}.`
+                : receipt?.reason || 'The leaf, secret, or proof did not match the official root.'}
+            </div>
+
+            {verified && (
+              <div style={{ marginTop: 18, color: '#c8a951', fontFamily: 'monospace', fontSize: 12 }}>
+                Status: INCLUDED IN OFFICIAL TALLY
               </div>
-            ))}
+            )}
+
+            <details style={{ marginTop: 24, color: '#667788', fontSize: 12 }}>
+              <summary style={{ cursor: 'pointer', color: verified ? '#c8a951' : '#cc4444', fontFamily: 'monospace' }}>
+                Technical proof
+              </summary>
+              <div style={{ marginTop: 16 }}>
+                {receipt?.published_root && (
+                  <div style={{ marginBottom: 14, fontFamily: 'monospace', wordBreak: 'break-all', color: '#5a8fa8' }}>
+                    Official root: {receipt.published_root}
+                  </div>
+                )}
+                {receipt?.leaf_hash && (
+                  <div style={{ marginBottom: 14, fontFamily: 'monospace', wordBreak: 'break-all', color: '#5a8fa8' }}>
+                    Leaf hash: {receipt.leaf_hash}
+                  </div>
+                )}
+                {proofPath.length === 0 && (
+                  <div style={{ fontFamily: 'monospace', color: '#5a8fa8' }}>
+                    No sibling hashes needed for a single-ballot tree.
+                  </div>
+                )}
+                {proofPath.map((step, i) => (
+                  <div key={i} style={{
+                    display: 'flex', gap: 16, marginBottom: 12,
+                    paddingBottom: 12, borderBottom: '1px solid #1e3248',
+                    alignItems: 'flex-start'
+                  }}>
+                    <div style={{ color: '#c8a951', fontFamily: 'monospace', fontSize: 11, flexShrink: 0, marginTop: 2 }}>
+                      L{i + 1}
+                    </div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 12, color: '#5a8fa8', wordBreak: 'break-all' }}>
+                      {step.direction}: {step.hash}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </details>
           </div>
         )}
       </div>

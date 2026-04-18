@@ -54,13 +54,25 @@ def verify_receipt(req: ReceiptVerifyReq):
 
     tree = build_tree_from_db()
     proof = tree.get_proof(req.leaf_index)
-    root = db.get_latest_root() or tree.get_root()
-    verified = tree.verify_proof(expected_leaf, proof, root)
+    public_root = db.get_latest_root_record()
+    if not public_root:
+        return {
+            "verified": False,
+            "reason": "No public Merkle root has been published yet.",
+            "proof_path": [],
+            "published_root": None
+        }
+
+    verified = tree.verify_proof(expected_leaf, proof, public_root["root_hash"])
 
     return {
         "verified": verified,
+        "ballot_id": req.leaf_index + 1,
         "leaf_hash": expected_leaf,
-        "root": root,
+        "root": public_root["root_hash"],
+        "published_root": public_root["root_hash"],
+        "total_votes": public_root["vote_count"],
+        "published_at": public_root["created_at"],
         "proof_path": [
             {
                 "hash": step["sibling"],

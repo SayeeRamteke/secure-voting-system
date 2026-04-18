@@ -14,6 +14,8 @@ export default function BallotPage() {
   const [selected, setSelected] = useState('')
   const [logs, setLogs] = useState([])
   const [leafIndex, setLeafIndex] = useState(null)
+  const [officialRoot, setOfficialRoot] = useState('')
+  const [officialVoteCount, setOfficialVoteCount] = useState(null)
   const [voted, setVoted] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -95,6 +97,14 @@ export default function BallotPage() {
     ]
     steps.forEach((s, i) => setTimeout(() => addLog(s), i * 600))
     setLeafIndex(data.leaf_index)
+    setOfficialRoot(data.merkle_root || '')
+    try {
+      const { data: board } = await api.get('/election/root')
+      setOfficialRoot(board.merkle_root || data.merkle_root || '')
+      setOfficialVoteCount(board.total_votes)
+    } catch {
+      setOfficialVoteCount(null)
+    }
     setVoted(true)
 
   } catch (err) {
@@ -198,12 +208,25 @@ export default function BallotPage() {
                 Your vote has been recorded.
               </div>
               <div style={{ color: '#667788', fontSize: 14 }}>
-                Receipt leaf index: <span style={{ color: '#c8a951', fontFamily: 'monospace' }}>#{leafIndex}</span>
+                Ballot ID: <span style={{ color: '#c8a951', fontFamily: 'monospace' }}>#{leafIndex + 1}</span>
+              </div>
+              <div style={{ color: '#667788', fontSize: 14, marginTop: 6 }}>
+                Status: <span style={{ color: '#c8a951', fontFamily: 'monospace' }}>INCLUDED IN OFFICIAL TALLY</span>
               </div>
               <p style={{ color: '#445566', fontSize: 13, marginTop: 16, lineHeight: 1.6 }}>
-                Save your leaf index and voter secret. Use them on the Receipt
-                page to verify your vote was counted and not tampered with.
+                Save Ballot ID #{leafIndex + 1} and your voter secret. Use them on the Receipt page
+                to verify your vote against the public election board.
               </p>
+              <details style={{ marginTop: 18, color: '#667788', fontSize: 12 }}>
+                <summary style={{ cursor: 'pointer', color: '#c8a951', fontFamily: 'monospace' }}>
+                  Technical receipt
+                </summary>
+                <div style={{ marginTop: 12, fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.7 }}>
+                  <div>Leaf index: {leafIndex}</div>
+                  <div>Official root: {officialRoot ? `${officialRoot.slice(0, 16)}...` : 'publishing...'}</div>
+                  {officialVoteCount !== null && <div>Published votes: {officialVoteCount}</div>}
+                </div>
+              </details>
             </div>
           )}
         </div>

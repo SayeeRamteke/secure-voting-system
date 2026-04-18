@@ -126,7 +126,7 @@ def get_latest_root() -> str | None:
 def get_latest_root_record():
     conn = get_conn()
     return conn.execute(
-        "SELECT root_hash, vote_count FROM merkle_roots ORDER BY seq DESC LIMIT 1"
+        "SELECT seq, root_hash, vote_count, created_at FROM merkle_roots ORDER BY seq DESC LIMIT 1"
     ).fetchone()
 
 def insert_root(root_hash: str, vote_count: int):

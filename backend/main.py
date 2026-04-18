@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from backend import db
-from backend.routes import enroll, vote, receipt, health, admin
+from backend.routes import enroll, vote, receipt, health, admin, public
 
 app = FastAPI()
 
@@ -34,6 +34,7 @@ app.include_router(vote.router)
 app.include_router(receipt.router)
 app.include_router(health.router)
 app.include_router(admin.router)
+app.include_router(public.router)
 
 import json
 from pathlib import Path
@@ -58,6 +59,5 @@ def startup():
         merkle_tree.insert(v["merkle_leaf"])
 
 # run: uvicorn main:app --reload --port 8000
-
 
 
