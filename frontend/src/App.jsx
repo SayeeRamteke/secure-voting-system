@@ -4,6 +4,7 @@ import RegisterPage from './pages/RegisterPage'
 import BallotPage from './pages/BallotPage'
 import ReceiptPage from './pages/ReceiptPage'
 import AdminReveal from './pages/AdminReveal'
+import AttackLab from './pages/AttackLab'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Home', icon: '⬡' },
@@ -11,6 +12,7 @@ const NAV_ITEMS = [
   { id: 'vote', label: 'Vote', icon: '◈' },
   { id: 'receipt', label: 'Receipt', icon: '◎' },
   { id: 'admin', label: 'Admin', icon: '◆' },
+  { id: 'attack', label: 'Attack Lab', icon: '!' },
 ]
 
 export default function App() {
@@ -82,6 +84,7 @@ export default function App() {
         {page === 'vote' && <BallotPage />}
         {page === 'receipt' && <ReceiptPage />}
         {page === 'admin' && <AdminReveal />}
+        {page === 'attack' && <AttackLab />}
       </div>
 
     </div>

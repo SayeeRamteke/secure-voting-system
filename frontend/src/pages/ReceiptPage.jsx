@@ -72,6 +72,8 @@ export default function ReceiptPage() {
             placeholder="Enter your PIN"
             type="password"
             inputMode="numeric"
+            autoComplete="off"
+            data-lpignore="true"
             style={{
               width: '100%', padding: '12px 14px',
               border: '1px solid #ddd', borderBottom: '2px solid #0d1b2a',
