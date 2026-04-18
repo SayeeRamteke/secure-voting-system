@@ -5,6 +5,7 @@ from datetime import datetime
 import base64
 import db, detection
 from crypto.crypto_core import compute_nullifier, hash_leaf
+from crypto.key_wrap import wrap_aes_key_for_db
 from crypto.merkle import MerkleTree
 
 router = APIRouter()
@@ -36,7 +37,7 @@ class VoteCompleteReq(BaseModel):
     credential_id: str
     voter_secret: str
     encrypted_vote: bytes   # AES-256-GCM sealed, from client
-    aes_key: bytes          # wrapped with election pubkey (simplified: pass raw for demo)
+    aes_key: bytes          # raw per-vote AES key from client; wrapped before DB storage
     aes_nonce: bytes
     signature: bytes        # Ed25519 over encrypted_vote
     webauthn_assertion: dict
@@ -84,7 +85,10 @@ async def vote_complete(req: VoteCompleteReq, request: Request):
     # 4. compute nullifier
     nullifier = compute_nullifier(req.voter_secret, "election_2024")
     encrypted_vote = decode_client_bytes(req.encrypted_vote)
-    aes_key = decode_client_bytes(req.aes_key)
+    try:
+        aes_key = wrap_aes_key_for_db(decode_client_bytes(req.aes_key))
+    except Exception as e:
+        raise HTTPException(500, f"Election public key wrapping failed: {e}")
     aes_nonce = decode_client_bytes(req.aes_nonce)
     signature = decode_client_bytes(req.signature)
 

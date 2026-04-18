@@ -45,3 +45,6 @@ shard_1.txt
 shard_2.txt 
 shard_3.txt 
 election_key.txt 
+election_private_key.txt
+election_public_key.txt
+election_commitments.json

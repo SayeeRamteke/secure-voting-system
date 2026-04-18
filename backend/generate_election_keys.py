@@ -1,74 +1,72 @@
 #!/usr/bin/env python3
 """
-generate_election_keys.py — Run ONCE before the election, offline if possible.
-
-Usage:
-    python generate_election_keys.py
+Generate one election X25519 keypair and split the private key 2-of-3.
 
 Writes:
-    shard_1.txt  →  hand to Trustee 1
-    shard_2.txt  →  hand to Trustee 2
-    shard_3.txt  →  hand to Trustee 3
-
-    election_key.txt  →  store in a hardware security module or sealed
-                          envelope; destroy after confirming shards work.
-
-The key is split 2-of-3: any two trustees can reconstruct it.
-Never store all three shards together.
+    election_public_key.txt   -> safe to keep with the server for key wrapping
+    election_commitments.json -> public VSS commitments for shard validation
+    shard_1.txt, shard_2.txt, shard_3.txt
+    election_private_key.txt  -> demo backup only; delete after checking shards
 """
-
-import os
+import json
 import sys
 from pathlib import Path
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-"""from secretsharing import PlaintextToHexSecretSharer as SS"""
-from shamir import split_secret, recover_secret
+
+from cryptography.hazmat.primitives.asymmetric import x25519
+from cryptography.hazmat.primitives import serialization
+
+from crypto.key_wrap import private_key_from_hex, public_key_hex
+from shamir import recover_secret, split_secret_with_commitments, verify_share
 
 OUTPUT_DIR = Path(".")
 
 
 def main():
-    # ── Generate key ─────────────────────────────────────────────────────────
-    election_key = AESGCM.generate_key(bit_length=256)   # 32 random bytes
-    election_key_hex = election_key.hex()                 # 64 hex chars
+    private_key = x25519.X25519PrivateKey.generate()
+    private_key_hex = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).hex()
+    public_key = private_key.public_key()
+    public_key_hex_value = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ).hex()
 
-    # Guard: secretsharing can silently lose leading zeros on short keys.
-    # blake3/AESGCM keys are always 32 bytes so this shouldn't happen,
-    # but assert defensively.
-    assert len(election_key_hex) == 64, "Key hex must be 64 chars"
+    shards, commitments = split_secret_with_commitments(
+        private_key_hex,
+        threshold=2,
+        num_shares=3,
+    )
 
-    # ── Split into 3 shards, threshold = 2 ───────────────────────────────────
-    shards = split_secret(election_key_hex, threshold=2, num_shares=3)
-    assert len(shards) == 3
+    for combo in ((0, 1), (0, 2), (1, 2)):
+        recovered_hex = recover_secret([shards[combo[0]], shards[combo[1]]])
+        recovered_private = private_key_from_hex(recovered_hex)
+        if public_key_hex(recovered_private) != public_key_hex_value:
+            print("ERROR: Shamir recovery produced the wrong private key.", file=sys.stderr)
+            sys.exit(1)
+    print("Shamir recovery verified for all 2-of-3 shard combinations")
 
-    # ── Verify round-trip BEFORE writing anything ─────────────────────────────
-    recovered_hex = recover_secret([shards[0], shards[1]])
-    recovered_key = bytes.fromhex(recovered_hex)
-    if recovered_key != election_key:
-        print("ERROR: Shamir round-trip verification failed. Key NOT written.", file=sys.stderr)
+    if not all(verify_share(shard, commitments) for shard in shards):
+        print("ERROR: VSS commitment verification failed.", file=sys.stderr)
         sys.exit(1)
-    print("✓ Shamir round-trip verified (shards 1+2 → original key)")
+    print("Feldman VSS commitments verified for all shards")
 
-    recovered_hex2 = recover_secret([shards[1], shards[2]])
-    if bytes.fromhex(recovered_hex2) != election_key:
-        print("ERROR: Shamir round-trip verification failed (shards 2+3). Key NOT written.", file=sys.stderr)
-        sys.exit(1)
-    print("✓ Shamir round-trip verified (shards 2+3 → original key)")
-
-    # ── Write shard files ─────────────────────────────────────────────────────
     for i, shard in enumerate(shards, start=1):
         path = OUTPUT_DIR / f"shard_{i}.txt"
         path.write_text(shard + "\n")
-        print(f"  Written: {path}  →  give to Trustee {i}")
+        print(f"Written: {path}")
 
-    # ── Write key file (keep offline/destroy after confirming shards) ─────────
-    key_path = OUTPUT_DIR / "election_key.txt"
-    key_path.write_text(election_key_hex + "\n")
-    print(f"\n  Written: {key_path}")
-    print("  ⚠️  Store this in a sealed envelope or HSM.")
-    print("  ⚠️  Delete after confirming the three shards work independently.\n")
+    (OUTPUT_DIR / "election_public_key.txt").write_text(public_key_hex_value + "\n")
+    (OUTPUT_DIR / "election_commitments.json").write_text(
+        json.dumps({"threshold": 2, "shares": 3, "commitments": commitments}, indent=2) + "\n"
+    )
+    (OUTPUT_DIR / "election_private_key.txt").write_text(private_key_hex + "\n")
 
-    print("Done. Distribute shard files to trustees — never send two shards to the same person.")
+    print("Written: election_public_key.txt")
+    print("Written: election_commitments.json")
+    print("Written: election_private_key.txt  (demo backup; delete after shard checks)")
 
 
 if __name__ == "__main__":

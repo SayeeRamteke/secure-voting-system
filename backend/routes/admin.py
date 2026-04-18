@@ -17,14 +17,16 @@ import secrets
 import logging
 import base64
 import re
+import json
 from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from shamir import recover_secret
+from shamir import recover_secret, verify_share
 import db
 from crypto.crypto_core import open_vote
+from crypto.key_wrap import find_key_file, private_key_from_hex, unwrap_aes_key_from_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -89,6 +91,17 @@ def normalize_shard(shard: str) -> str:
         )
     return normalized
 
+def load_commitments() -> list[str]:
+    try:
+        payload = json.loads(find_key_file("election_commitments.json").read_text())
+        commitments = payload["commitments"]
+    except Exception as e:
+        raise HTTPException(500, f"Election VSS commitments not available: {e}")
+
+    if not isinstance(commitments, list) or not commitments:
+        raise HTTPException(500, "Election VSS commitments are invalid")
+    return commitments
+
 @router.post("/admin/shard", dependencies=[Depends(require_admin)])
 def submit_shard(req: ShardSubmitReq, request: Request) -> dict:
     """
@@ -96,6 +109,13 @@ def submit_shard(req: ShardSubmitReq, request: Request) -> dict:
     Returns how many shards have been collected so far.
     """
     shard = normalize_shard(req.shard)
+    commitments = load_commitments()
+    try:
+        valid = verify_share(shard, commitments)
+    except Exception as e:
+        raise HTTPException(400, f"Shard verification failed: {e}")
+    if not valid:
+        raise HTTPException(400, "Share verification failed")
 
     # Use a single shared slot (demo: one election at a time).
     # In production, key by election_id.
@@ -157,19 +177,14 @@ def reveal(request: Request) -> dict:
 
     # ── 1. Reconstruct election key ──────────────────────────────────────────
     try:
-        election_key_hex = recover_secret(slot["shards"][:REQUIRED_SHARDS])
-        # Guard against leading-zero truncation in some secretsharing builds
-        election_key_hex = election_key_hex.zfill(64)   # 256-bit = 64 hex chars
-        election_key = bytes.fromhex(election_key_hex)
+        election_private_hex = recover_secret(slot["shards"][:REQUIRED_SHARDS])
+        election_private_key = private_key_from_hex(election_private_hex)
     except Exception as e:
         logger.error("Shamir combine failed: %s", e)
         raise HTTPException(400, f"Shamir combine failed: {e}")
     finally:
         # Always clear shards from memory — whether combine succeeded or not
         _shard_store.pop("active", None)
-
-    if len(election_key) != 32:
-        raise HTTPException(500, "Recovered key is not 256 bits — shards may be wrong")
 
     # ── 2. Decrypt and tally ─────────────────────────────────────────────────
     votes = db.get_all_votes()
@@ -178,13 +193,12 @@ def reveal(request: Request) -> dict:
 
     for v in votes:
         vote_id = v["id"]
+        encrypted_vote = bytes(v["encrypted_vote"])
         try:
-            # Each vote has its OWN aes_key stored in the DB (see vote.py / db.py).
-            # The election_key is NOT used to directly decrypt each ballot;
-            # it was used to wrap the per-vote aes_key (simplified demo: stored raw).
-            per_vote_key   = bytes(v["aes_key"])
+            # aes_key stores a wrapped per-vote AES key. The reconstructed
+            # election private key unwraps it at reveal time.
+            per_vote_key   = unwrap_aes_key_from_db(election_private_key, bytes(v["aes_key"]))
             nonce          = bytes(v["aes_nonce"])
-            encrypted_vote = bytes(v["encrypted_vote"])
 
             # Validate nonce length (AES-GCM requires exactly 12 bytes)
             if len(nonce) != 12:

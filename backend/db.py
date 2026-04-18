@@ -51,6 +51,10 @@ def init_db():
             vote_count INTEGER NOT NULL,
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS election_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            commitments TEXT NOT NULL
+        );
         """)
 
 # ── helpers ─────────────────────────────────────────
@@ -140,3 +144,22 @@ def update_vote_leaf_timestamp(nullifier: str, leaf: str, timestamp: str):
 def vote_count() -> int:
     conn = get_conn()
     return conn.execute("SELECT COUNT(*) FROM votes").fetchone()[0]
+
+import json
+
+def save_commitments(commitments_json: str):
+    """Saves the Feldman VSS commitments. Called during startup."""
+    with tx() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO election_config (id, commitments) VALUES (1, ?)",
+            (commitments_json,)
+        )
+
+def get_election_commitments():
+    """Retrieves commitments for shard verification in admin.py."""
+    conn = get_conn()
+    row = conn.execute("SELECT commitments FROM election_config WHERE id = 1").fetchone()
+    if row:
+        # We store it as a JSON string in the DB, so we decode it back to a list
+        return json.loads(row["commitments"])
+    return None
