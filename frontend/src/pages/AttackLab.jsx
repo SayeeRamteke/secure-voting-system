@@ -187,6 +187,177 @@ function now() {
   return new Date().toLocaleTimeString()
 }
 
+const THEATER_CSS = `
+@keyframes pulseGreen { 0%,100% { box-shadow: 0 0 0 #8fc8b0; } 50% { box-shadow: 0 0 22px #8fc8b0; } }
+@keyframes pulseRed { 0%,100% { box-shadow: 0 0 0 #ff6b6b; } 50% { box-shadow: 0 0 24px #ff6b6b; } }
+@keyframes slideRow { 0% { transform: translateX(-140px); opacity: .2; } 65% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(18px) scale(.75); opacity: 0; } }
+@keyframes glowNullifier { 0%,100% { color: #8aa1a8; } 50% { color: #ff6b6b; text-shadow: 0 0 14px #ff6b6b; } }
+@keyframes radar { 0% { left: 0; opacity: .3; } 50% { opacity: 1; } 100% { left: 92%; opacity: .3; } }
+@keyframes arrowCompare { 0% { transform: translateX(-70px); opacity: .2; } 60% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(0); opacity: 1; } }
+@keyframes maskDecoy { 0%,50% { color: #ff6b6b; } 100% { color: #8aa1a8; filter: blur(3px); } }
+@keyframes scanVotes { 0% { width: 0; } 100% { width: 100%; } }
+@keyframes glitch { 0%,100% { transform: translate(0); } 20% { transform: translate(-3px, 1px); color: #ff6b6b; } 40% { transform: translate(2px, -1px); color: #8fc8b0; } 60% { transform: translate(-1px, 2px); } }
+@keyframes bannerDrop { 0% { transform: translateY(-44px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+@keyframes snapLine { 0%,45% { background: #8fc8b0; transform: rotate(0); } 100% { background: #ff6b6b; transform: rotate(8deg); } }
+@keyframes tamperPulse { 0%,100% { background: #172126; color: #8fc8b0; } 50% { background: #8a1a1a; color: white; } }
+.atk-chip { border: 1px solid #26343a; border-radius: 6px; padding: 12px; background: #070a0d; }
+.pin-ok { animation: pulseGreen 1.2s ease-in-out 2; border-color: #8fc8b0 !important; }
+.bio-fail { animation: pulseRed 1.2s ease-in-out 2; border-color: #ff6b6b !important; }
+.incoming-row { animation: slideRow 2.2s ease forwards; }
+.nullifier-hot { animation: glowNullifier 1.1s ease-in-out 2; }
+.radar-beam { animation: radar 2s ease-in-out forwards; }
+.compare-arrow { animation: arrowCompare 1.5s ease-out forwards; }
+.decoy-mask { animation: maskDecoy 2.6s ease forwards; }
+.scan-bar { animation: scanVotes 2.2s ease-out forwards; }
+.glitch-text { animation: glitch .65s ease-in-out 3; }
+.malware-banner { animation: bannerDrop .7s ease-out forwards; }
+.snap-line { animation: snapLine 1.4s ease forwards; }
+.tamper-badge { animation: tamperPulse 1s ease-in-out infinite; }
+`
+
+function attackExtraLines(id) {
+  const lines = {
+    credential_stuffing: ['[PIN] hash match: TRUE', '[ERROR] 401: WebAuthn Assertion Missing. Hardware Signature Required.'],
+    double_vote: ['SQLITE_CONSTRAINT: UNIQUE constraint failed: votes.nullifier'],
+    fake_shard: ['[VSS] g^y != product(C_i ^ x^i)', '[VSS] Shard checksum mismatch. Entry into Shard Store: REJECTED.'],
+    merkle_forgery: ['[AUDIT] Root cross-check with Independent Witness 1 ... MATCH FAILED.'],
+    panic_pin: ['[DECOY] Coercion tag stored.', '[REVEAL] Coercion Tag: Skipping Row.'],
+    dom_hijack: ['[MALWARE DETECTED] DOM Mutation observed on element #candidate-id.'],
+    db_tamper: ['[DETECTION] Integrity check running...', '[CRITICAL] Leaf hash does not match sequential history. Database compromised.']
+  }
+  return lines[id] || []
+}
+
+function attackAuditLine(id) {
+  const lines = {
+    credential_stuffing: '[ERROR] 401: WebAuthn Assertion Missing. Hardware Signature Required.',
+    double_vote: 'SQLITE_CONSTRAINT: UNIQUE constraint failed: votes.nullifier.',
+    fake_shard: '[VSS] Shard checksum mismatch. Entry into Shard Store: REJECTED.',
+    merkle_forgery: '[AUDIT] Root cross-check with Independent Witness 1 ... MATCH FAILED.',
+    panic_pin: '[REVEAL] Coercion Tag: Skipping Row.',
+    dom_hijack: '[MALWARE DETECTED] DOM Mutation observed on element #candidate-id.',
+    db_tamper: '[CRITICAL] Leaf hash does not match sequential history. Database compromised.'
+  }
+  return lines[id]
+}
+
+function Theater({ attackId, board }) {
+  if (attackId === 'credential_stuffing') {
+    return (
+      <div className="atk-chip" style={{ display: 'grid', gridTemplateColumns: '1fr 70px 1fr', gap: 12, alignItems: 'center', marginBottom: 14 }}>
+        <div className="atk-chip pin-ok">
+          <div style={{ color: '#8fc8b0', fontSize: 11 }}>GATE 1</div>
+          <div style={{ color: 'white', fontWeight: 700 }}>PIN CHECK PASSED</div>
+        </div>
+        <div style={{ textAlign: 'center', color: '#c8a951' }}>--&gt;</div>
+        <div className="atk-chip bio-fail">
+          <div style={{ color: '#ff6b6b', fontSize: 11 }}>GATE 2</div>
+          <div style={{ color: 'white', fontWeight: 700 }}>HARDWARE WALL</div>
+          <div style={{ color: '#8aa1a8', fontSize: 11, marginTop: 4 }}>virtual fingerprint timeout</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (attackId === 'double_vote') {
+    return (
+      <div className="atk-chip" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 90px', gap: 8, color: '#c8a951', fontSize: 10, marginBottom: 8 }}>
+          <span>ROW</span><span>NULLIFIER</span><span>INDEX</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 90px', gap: 8, color: '#8aa1a8', padding: '6px 0', borderTop: '1px solid #26343a' }}>
+          <span>existing</span><span className="nullifier-hot">64f30495...98772</span><span>UNIQUE</span>
+        </div>
+        <div className="incoming-row" style={{ display: 'grid', gridTemplateColumns: '90px 1fr 90px', gap: 8, color: '#ff6b6b', padding: '6px 0', borderTop: '1px solid #26343a' }}>
+          <span>new</span><span>64f30495...98772</span><span>REJECT</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (attackId === 'fake_shard') {
+    return (
+      <div className="atk-chip" style={{ height: 150, position: 'relative', marginBottom: 14, overflow: 'hidden' }}>
+        <svg viewBox="0 0 500 130" width="100%" height="120">
+          <path d="M20 95 C150 15 310 15 480 95" stroke="#8fc8b0" fill="none" strokeWidth="3" />
+          <circle cx="330" cy="28" r="8" fill="#ff6b6b" />
+          <text x="345" y="32" fill="#ffb3b3" fontSize="13">fake shard</text>
+          <text x="32" y="118" fill="#8aa1a8" fontSize="12">Feldman commitment curve</text>
+        </svg>
+        <div className="radar-beam" style={{ position: 'absolute', top: 0, width: 10, height: '100%', background: 'linear-gradient(90deg, transparent, #8fc8b0, transparent)' }} />
+      </div>
+    )
+  }
+
+  if (attackId === 'merkle_forgery') {
+    return (
+      <div className="atk-chip" style={{ display: 'grid', gridTemplateColumns: '1fr 80px 1fr', gap: 12, alignItems: 'center', marginBottom: 14 }}>
+        <div className="atk-chip">
+          <div style={{ color: '#ffb3b3', fontSize: 11 }}>ATTACKER LOCAL TREE</div>
+          <div style={{ color: '#ff6b6b', marginTop: 8 }}>root: deadbeef...cafe</div>
+        </div>
+        <div className="compare-arrow" style={{ textAlign: 'center', color: '#ff6b6b', fontSize: 26 }}>!=</div>
+        <div className="atk-chip">
+          <div style={{ color: '#8fc8b0', fontSize: 11 }}>PUBLIC BULLETIN BOARD</div>
+          <div style={{ color: '#c8a951', marginTop: 8 }}>root: {shortHash(board?.merkle_root)}</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (attackId === 'panic_pin') {
+    return (
+      <div className="atk-chip" style={{ marginBottom: 14 }}>
+        <div style={{ color: '#8fc8b0', fontWeight: 700, marginBottom: 8 }}>Success. Vote Recorded.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10, color: '#8aa1a8', borderTop: '1px solid #26343a', paddingTop: 10 }}>
+          <span>votes.is_decoy</span><span className="decoy-mask">1</span>
+        </div>
+        <div style={{ height: 6, background: '#172126', marginTop: 14 }}>
+          <div className="scan-bar" style={{ height: '100%', background: '#c8a951' }} />
+        </div>
+        <div style={{ color: '#ffb3b3', fontSize: 11, marginTop: 8 }}>reveal scanner: coercion tag skipped</div>
+      </div>
+    )
+  }
+
+  if (attackId === 'dom_hijack') {
+    return (
+      <div className="atk-chip" style={{ marginBottom: 14, position: 'relative', overflow: 'hidden' }}>
+        <div className="malware-banner" style={{ background: '#8a1a1a', color: 'white', padding: 8, borderRadius: 4, marginBottom: 12 }}>
+          MALICIOUS SCRIPT INJECTED
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 10, alignItems: 'center' }}>
+          <div className="atk-chip"><div style={{ color: '#8aa1a8' }}>Selected Candidate</div><div style={{ color: 'white', fontSize: 20 }}>Candidate A</div></div>
+          <div style={{ color: '#ff6b6b', textAlign: 'center' }}>--&gt;</div>
+          <div className="atk-chip"><div style={{ color: '#8aa1a8' }}>Mutated DOM</div><div className="glitch-text" style={{ color: '#ff6b6b', fontSize: 20 }}>Candidate B</div></div>
+        </div>
+      </div>
+    )
+  }
+
+  if (attackId === 'db_tamper') {
+    return (
+      <div className="atk-chip" style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+          <span style={{ color: '#8aa1a8' }}>health status</span>
+          <span className="tamper-badge" style={{ padding: '4px 8px', borderRadius: 4 }}>TAMPER DETECTED</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, alignItems: 'center' }}>
+          <div className="atk-chip" style={{ textAlign: 'center' }}>leaf #4</div>
+          <div className="snap-line" style={{ height: 4 }} />
+          <div className="atk-chip" style={{ textAlign: 'center', color: '#ff6b6b' }}>root mismatch</div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="atk-chip" style={{ marginBottom: 14, color: '#8aa1a8', lineHeight: 1.6 }}>
+      This scenario highlights a residual risk. Run it to populate the console and defense roadmap.
+    </div>
+  )
+}
+
 export default function AttackLab() {
   const [selected, setSelected] = useState(ATTACKS[0].id)
   const [rollNo, setRollNo] = useState('')
@@ -202,6 +373,7 @@ export default function AttackLab() {
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('flow')
   const [error, setError] = useState('')
+  const [runId, setRunId] = useState(0)
 
   const attack = useMemo(() => ATTACKS.find(item => item.id === selected), [selected])
 
@@ -219,6 +391,7 @@ export default function AttackLab() {
     setLoading(true)
     setError('')
     setResult(null)
+    setRunId(value => value + 1)
 
     const baseLines = [
       `select attack --id ${attack.id}`,
@@ -253,11 +426,15 @@ export default function AttackLab() {
       setResult(data)
       setTerminal(lines => [
         ...lines,
+        ...attackExtraLines(attack.id),
         `> verdict=${data.verdict}`,
         `> summary="${data.summary}"`,
         '> simulation complete'
       ])
       appendAudit(data.verdict === 'defended' ? 'PASS' : 'RISK', data.summary)
+      if (attackAuditLine(attack.id)) {
+        appendAudit(attack.status === 'partially exposed' ? 'RISK' : 'WARN', attackAuditLine(attack.id))
+      }
     } catch (err) {
       const detail = err.response?.data?.detail || err.message
       setError(detail)
@@ -308,6 +485,7 @@ export default function AttackLab() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#070a0d', color: '#d7e2dc', padding: 28, fontFamily: 'monospace' }}>
+      <style>{THEATER_CSS}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, border: '1px solid #26343a', padding: '12px 16px', borderRadius: 6, background: '#10161a' }}>
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#e24b4a' }} />
         <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ef9f27' }} />
@@ -359,6 +537,7 @@ export default function AttackLab() {
               <div style={{ color: '#ffb3b3', fontSize: 12, marginBottom: 8 }}>target: {attack.target}</div>
               <div style={{ color: '#d7e2dc', fontSize: 24, fontFamily: 'Georgia, serif', fontWeight: 700, marginBottom: 10 }}>{attack.title}</div>
               <div style={{ color: '#8aa1a8', lineHeight: 1.55, fontSize: 13, marginBottom: 18 }}>{attack.short}</div>
+              <Theater key={`${selected}-${runId}`} attackId={selected} board={board} />
 
               {selected === 'credential_stuffing' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
