@@ -178,8 +178,6 @@ export default function RegisterPage() {
             placeholder="4 to 12 digits"
             type="password"
             inputMode="numeric"
-            autoComplete="off"
-            data-lpignore="true"
             style={{
               width: '100%',
               padding: '14px 16px',
@@ -210,8 +208,6 @@ export default function RegisterPage() {
             placeholder="Re-enter your PIN"
             type="password"
             inputMode="numeric"
-            autoComplete="off"
-            data-lpignore="true"
             style={{
               width: '100%',
               padding: '14px 16px',
@@ -250,8 +246,6 @@ export default function RegisterPage() {
               placeholder="Optional 4 to 12 digits"
               type="password"
               inputMode="numeric"
-              autoComplete="off"
-              data-lpignore="true"
               style={{
                 width: '100%',
                 padding: '14px 16px',
@@ -272,8 +266,6 @@ export default function RegisterPage() {
               placeholder="Confirm optional panic PIN"
               type="password"
               inputMode="numeric"
-              autoComplete="off"
-              data-lpignore="true"
               style={{
                 width: '100%',
                 padding: '14px 16px',
