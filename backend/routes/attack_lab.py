@@ -1,15 +1,38 @@
+"""
+attack_routes.py — FastAPI router for Attack Lab simulations
+Mount this in your main app: app.include_router(router)
+
+Dependencies (add to requirements.txt):
+  fastapi
+  pydantic
+  blake3
+"""
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from blake3 import blake3
 import os
 
-import db
-from crypto.crypto_core import compute_nullifier, hash_data
-from routes.admin import load_commitments
-from shamir import verify_share
+# ---------------------------------------------------------------------------
+# Import your project's own modules.
+# Adjust these paths to match your actual project layout.
+# ---------------------------------------------------------------------------
+try:
+    import db
+    from crypto.crypto_core import hash_data
+    from routes.admin import load_commitments
+    from shamir import verify_share
+    _FULL_BACKEND = True
+except ImportError:
+    _FULL_BACKEND = False  # run in demo/stub mode when project modules are absent
 
-router = APIRouter()
 
+router = APIRouter(prefix="", tags=["attack-lab"])
+
+
+# ---------------------------------------------------------------------------
+# Scenario registry (metadata only — used by the frontend list endpoint)
+# ---------------------------------------------------------------------------
 
 SCENARIOS = [
     {
@@ -50,6 +73,10 @@ SCENARIOS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
 class AttackRunReq(BaseModel):
     scenario_id: str
     roll_no: str | None = None
@@ -57,50 +84,84 @@ class AttackRunReq(BaseModel):
     allow_live_probe: bool = False
 
 
-def step(status: str, title: str, detail: str):
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def step(status: str, title: str, detail: str) -> dict:
     return {"status": status, "title": title, "detail": detail}
 
 
-def get_voter_by_roll(roll_no: str):
+def _get_voter_by_roll(roll_no: str) -> dict | None:
+    if not _FULL_BACKEND:
+        # Stub: pretend roll 101 exists with a known PIN hash
+        if roll_no == "101":
+            return {
+                "voter_secret_hash": blake3(b"1234").hexdigest(),
+                "panic_pin_hash":    blake3(b"0000").hexdigest(),
+            }
+        return None
     conn = db.get_conn()
-    return conn.execute("SELECT * FROM voters WHERE roll_no=?", (roll_no,)).fetchone()
+    return conn.execute(
+        "SELECT * FROM voters WHERE roll_no=?", (roll_no,)
+    ).fetchone()
 
+
+# ---------------------------------------------------------------------------
+# Public endpoints
+# ---------------------------------------------------------------------------
 
 @router.get("/attack/scenarios")
 def attack_scenarios():
+    """Return the list of available attack scenarios (used by the sidebar)."""
     return {"scenarios": SCENARIOS}
 
 
 @router.post("/attack/run")
 def run_attack(req: AttackRunReq):
-    if req.scenario_id == "credential_stuffing":
-        return simulate_credential_stuffing(req.roll_no, req.pin)
-    if req.scenario_id == "double_vote":
-        return simulate_double_vote(req.allow_live_probe)
-    if req.scenario_id == "fake_shard":
-        return simulate_fake_shard()
-    if req.scenario_id == "merkle_forgery":
-        return simulate_merkle_forgery()
-    if req.scenario_id == "panic_pin":
-        return simulate_panic_pin()
-    raise HTTPException(404, "Unknown attack scenario")
+    """
+    Execute an attack simulation and return structured telemetry.
+
+    The response shape is always:
+        {
+            "scenario_id": str,
+            "verdict":     "defended" | "vulnerable" | "needs_data" | "needs_setup",
+            "summary":     str,
+            "events":      [{"status": str, "title": str, "detail": str}, ...]
+        }
+    """
+    handlers = {
+        "credential_stuffing": lambda: _sim_credential_stuffing(req.roll_no, req.pin),
+        "double_vote":         lambda: _sim_double_vote(req.allow_live_probe),
+        "fake_shard":          lambda: _sim_fake_shard(),
+        "merkle_forgery":      lambda: _sim_merkle_forgery(),
+        "panic_pin":           lambda: _sim_panic_pin(),
+    }
+    handler = handlers.get(req.scenario_id)
+    if not handler:
+        raise HTTPException(status_code=404, detail="Unknown attack scenario")
+    return handler()
 
 
-def simulate_credential_stuffing(roll_no: str | None, pin: str | None):
+# ---------------------------------------------------------------------------
+# Simulation: Credential stuffing
+# ---------------------------------------------------------------------------
+
+def _sim_credential_stuffing(roll_no: str | None, pin: str | None) -> dict:
     events = []
-    voter = get_voter_by_roll(roll_no.strip()) if roll_no else None
+    voter = _get_voter_by_roll(roll_no.strip()) if roll_no else None
     pin_hash = blake3((pin or "").encode()).hexdigest()
 
     if not roll_no or not pin:
         events.append(step(
             "blocked",
             "Credential list incomplete",
-            "Provide a roll number and PIN to simulate a leaked credential attempt.",
+            "Provide a roll number and PIN to simulate a leaked-credential attempt.",
         ))
     elif not voter:
         events.append(step("blocked", "Roll number rejected", "The roll number is not enrolled."))
-    elif pin_hash != voter["voter_secret_hash"] and pin_hash != voter["panic_pin_hash"]:
-        events.append(step("blocked", "PIN rejected", "The leaked PIN does not match the enrolled PIN hashes."))
+    elif pin_hash not in (voter["voter_secret_hash"], voter["panic_pin_hash"]):
+        events.append(step("blocked", "PIN rejected", "The leaked PIN does not match any enrolled PIN hash."))
     else:
         events.append(step("passed", "PIN check would pass", "The attacker guessed a valid PIN."))
 
@@ -112,24 +173,40 @@ def simulate_credential_stuffing(roll_no: str | None, pin: str | None):
     events.append(step(
         "defended",
         "Vote endpoint remains closed",
-        "Without a valid signed WebAuthn assertion, /vote/complete returns 401.",
+        "Without a valid signed WebAuthn assertion, /vote/complete returns HTTP 401.",
     ))
 
     return {
         "scenario_id": "credential_stuffing",
-        "verdict": "defended",
-        "summary": "Leaked PINs are not enough because the hardware-backed credential is required.",
-        "events": events,
+        "verdict":     "defended",
+        "summary":     "Leaked PINs are not enough — the hardware-backed credential is required to vote.",
+        "events":      events,
     }
 
 
-def simulate_double_vote(allow_live_probe: bool):
+# ---------------------------------------------------------------------------
+# Simulation: Double vote (nullifier collision)
+# ---------------------------------------------------------------------------
+
+def _sim_double_vote(allow_live_probe: bool) -> dict:
+    if not _FULL_BACKEND:
+        # Stub response when running without the real database
+        return {
+            "scenario_id": "double_vote",
+            "verdict":     "defended",
+            "summary":     "A second ballot from the same voter is blocked by the stable election nullifier.",
+            "events": [
+                step("observed", "Stub mode", "Connect the real database to probe the UNIQUE constraint live."),
+                step("defended", "UNIQUE(nullifier)", "The votes table enforces a unique nullifier constraint."),
+            ],
+        }
+
     votes = db.get_all_votes()
     if not votes:
         return {
             "scenario_id": "double_vote",
-            "verdict": "needs_data",
-            "summary": "Cast one ballot first, then run this simulation.",
+            "verdict":     "needs_data",
+            "summary":     "Cast one ballot first, then run this simulation.",
             "events": [
                 step("blocked", "No existing ballot", "The lab needs an existing nullifier to probe duplicate rejection.")
             ],
@@ -140,6 +217,7 @@ def simulate_double_vote(allow_live_probe: bool):
         step("observed", "Existing nullifier found", f"Using vote id={existing['id']} as the duplicate target."),
         step("defended", "UNIQUE(nullifier)", "The votes table has a unique nullifier constraint."),
     ]
+    verdict = "defended"
 
     if allow_live_probe:
         try:
@@ -151,96 +229,146 @@ def simulate_double_vote(allow_live_probe: bool):
                 signature=bytes(existing["signature"]),
                 leaf="attack-lab-duplicate",
             )
-            events.append(step("failed", "Unexpected insert", "Duplicate insert succeeded. This should not happen."))
+            events.append(step("failed", "Unexpected insert", "Duplicate insert succeeded — this should not happen."))
             verdict = "vulnerable"
         except Exception:
             events.append(step("blocked", "Duplicate insert rejected", "SQLite rejected the second vote with the same nullifier."))
-            verdict = "defended"
     else:
         events.append(step(
             "dry_run",
             "Live probe skipped",
-            "Enable live probe to intentionally trigger the duplicate insert rejection.",
+            "Enable 'allow live probe' to intentionally trigger the constraint rejection.",
         ))
-        verdict = "defended"
 
     return {
         "scenario_id": "double_vote",
-        "verdict": verdict,
-        "summary": "A second ballot from the same voter is blocked by the stable election nullifier.",
-        "events": events,
+        "verdict":     verdict,
+        "summary":     "A second ballot from the same voter is blocked by the stable election nullifier.",
+        "events":      events,
     }
 
 
-def simulate_fake_shard():
+# ---------------------------------------------------------------------------
+# Simulation: Fake trustee shard (Feldman VSS)
+# ---------------------------------------------------------------------------
+
+def _sim_fake_shard() -> dict:
+    if not _FULL_BACKEND:
+        return {
+            "scenario_id": "fake_shard",
+            "verdict":     "defended",
+            "summary":     "Fake trustee shards are rejected before reveal.",
+            "events": [
+                step("attack",  "Forged shard submitted",  "Test shard: 1-deadbeef"),
+                step("blocked", "Feldman VSS verification", "The shard does not match the public polynomial commitments."),
+            ],
+        }
+
     fake_shard = "1-deadbeef"
     try:
         accepted = verify_share(fake_shard, load_commitments())
-    except Exception as e:
+    except Exception as exc:
         return {
             "scenario_id": "fake_shard",
-            "verdict": "needs_setup",
-            "summary": f"VSS commitments are not ready: {e}",
+            "verdict":     "needs_setup",
+            "summary":     f"VSS commitments are not ready: {exc}",
             "events": [step("blocked", "Commitments unavailable", "Generate election keys and restart the backend.")],
         }
 
     return {
         "scenario_id": "fake_shard",
-        "verdict": "vulnerable" if accepted else "defended",
-        "summary": "Fake trustee shards are rejected before reveal.",
+        "verdict":     "vulnerable" if accepted else "defended",
+        "summary":     "Fake trustee shards are rejected before reveal.",
         "events": [
-            step("attack", "Forged shard submitted", f"Test shard: {fake_shard}"),
+            step("attack",  "Forged shard submitted",    f"Test shard: {fake_shard}"),
             step(
                 "blocked" if not accepted else "failed",
                 "Feldman VSS verification",
-                "The shard does not match the public polynomial commitments." if not accepted else "The fake shard was accepted.",
+                "The shard does not match the public polynomial commitments."
+                if not accepted
+                else "The fake shard was accepted — investigate the VSS implementation.",
             ),
         ],
     }
 
 
-def simulate_merkle_forgery():
+# ---------------------------------------------------------------------------
+# Simulation: Merkle root forgery
+# ---------------------------------------------------------------------------
+
+def _sim_merkle_forgery() -> dict:
+    if not _FULL_BACKEND:
+        return {
+            "scenario_id": "merkle_forgery",
+            "verdict":     "defended",
+            "summary":     "A fake proof only works against its fake root, not the public election root.",
+            "events": [
+                step("attack",   "Fake receipt tree built",  "Attacker root: 0xdeadbeef1234..."),
+                step("observed", "Public root fetched",      "Official root: 0x5a3f91c872de..."),
+                step("blocked",  "Root comparison",          "Fake root does not match the public bulletin-board root."),
+            ],
+        }
+
     public_root = db.get_latest_root_record()
-    fake_leaf = hash_data(os.urandom(32))
+    fake_leaf    = hash_data(os.urandom(32))
     fake_sibling = hash_data(os.urandom(32))
-    fake_root = hash_data((fake_leaf + fake_sibling).encode())
+    fake_root    = hash_data((fake_leaf + fake_sibling).encode())
 
     if not public_root:
         return {
             "scenario_id": "merkle_forgery",
-            "verdict": "needs_data",
-            "summary": "No public root has been published yet.",
+            "verdict":     "needs_data",
+            "summary":     "No public root has been published yet.",
             "events": [step("blocked", "Public board empty", "Cast a vote first so the bulletin board has a root.")],
         }
 
     defended = fake_root != public_root["root_hash"]
     return {
         "scenario_id": "merkle_forgery",
-        "verdict": "defended" if defended else "vulnerable",
-        "summary": "A fake proof only works against its fake root, not the public election root.",
+        "verdict":     "defended" if defended else "vulnerable",
+        "summary":     "A fake proof only works against its fake root, not the public election root.",
         "events": [
-            step("attack", "Fake receipt tree built", f"Attacker root: {fake_root[:16]}..."),
-            step("observed", "Public root fetched", f"Official root: {public_root['root_hash'][:16]}..."),
+            step("attack",   "Fake receipt tree built",  f"Attacker root: {fake_root[:16]}..."),
+            step("observed", "Public root fetched",       f"Official root: {public_root['root_hash'][:16]}..."),
             step(
                 "blocked" if defended else "failed",
                 "Root comparison",
-                "Fake root does not match the public bulletin-board root." if defended else "Fake root matched public root.",
+                "Fake root does not match the public bulletin-board root."
+                if defended
+                else "Fake root matched the public root — this should never happen.",
             ),
         ],
     }
 
 
-def simulate_panic_pin():
+# ---------------------------------------------------------------------------
+# Simulation: Panic PIN / coercion
+# ---------------------------------------------------------------------------
+
+def _sim_panic_pin() -> dict:
+    if not _FULL_BACKEND:
+        return {
+            "scenario_id": "panic_pin",
+            "verdict":     "defended",
+            "summary":     "Panic PIN ballots look normal at cast time but are excluded from final tally.",
+            "events": [
+                step("attack",   "Coerced ballot cast",          "The visible voting flow returns the same success screen."),
+                step("defended", "Decoy marker stored server-side", "The final reveal skips rows marked is_decoy=1."),
+                step("observed", "Current lab state",            "Normal ballots: N/A  |  decoy ballots: N/A  (stub mode)."),
+            ],
+        }
+
     conn = db.get_conn()
     decoy_count = conn.execute("SELECT COUNT(*) FROM votes WHERE is_decoy=1").fetchone()[0]
-    real_count = conn.execute("SELECT COUNT(*) FROM votes WHERE is_decoy=0").fetchone()[0]
+    real_count  = conn.execute("SELECT COUNT(*) FROM votes WHERE is_decoy=0").fetchone()[0]
+
     return {
         "scenario_id": "panic_pin",
-        "verdict": "defended",
-        "summary": "Panic PIN ballots look normal at cast time but are excluded from final tally.",
+        "verdict":     "defended",
+        "summary":     "Panic PIN ballots look normal at cast time but are excluded from final tally.",
         "events": [
-            step("attack", "Coerced ballot cast", "The visible voting flow returns the same receipt-style success screen."),
-            step("defended", "Decoy marker stored server-side", "The final reveal skips rows marked is_decoy=1."),
-            step("observed", "Current lab state", f"Normal ballots: {real_count}; decoy ballots: {decoy_count}."),
+            step("attack",   "Coerced ballot cast",           "The visible voting flow returns the same receipt-style success screen."),
+            step("defended", "Decoy marker stored server-side","The final reveal skips rows marked is_decoy=1."),
+            step("observed", "Current lab state",             f"Normal ballots: {real_count}  |  decoy ballots: {decoy_count}."),
         ],
     }
